@@ -2,3 +2,9 @@
 node_modules/
 .env*
 .vscode/
+local/*.db
+local/*.db-wal
+local/*.db-shm
+__pycache__/
+dist/
+.vercel/

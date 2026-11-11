@@ -430,6 +430,38 @@ function pie(row, list = SPOKES){
     `<i title="${esc(c.name)}" style="width:8px;height:8px;border-radius:50%;display:inline-block;${row.cats[c.id] ? 'background:'+levelOf(c.game).color : 'border:1.5px solid '+levelOf(c.game).color+';opacity:.45'}"></i>`).join('') + `</span>`;
 }
 
+/* ---------- Share the day's standings ---------- */
+// Set this once the site has a public address; it's added to the end of the share text.
+const SHARE_URL = '';
+const MEDALS = ['🥇','🥈','🥉'], LEVEL_EMOJI = {bronze:'🟫', silver:'⬜', gold:'🟨'};
+const SHARE_TOP = 10;
+// Builds share text for one level's standings, like the result text the games themselves share.
+function shareText(lid, lvRows, day){
+  const Lv = L[lid], max = Lv.n * 100;
+  const d = new Date(day+'T12:00:00').toLocaleDateString(undefined, {weekday:'short', month:'short', day:'numeric'});
+  const done = lvRows.filter(x => x.lv.done), going = lvRows.filter(x => !x.lv.done);
+  const lines = [`trivialRANKS · ${d}`, `${LEVEL_EMOJI[lid]} ${Lv.name} · ${Lv.n} games · out of ${max}`, ''];
+  const line = (x, i) => `${MEDALS[i] || (i+1) + '.'} ${nameOf(x.r.id)} ${x.lv.total}`;
+  done.slice(0, SHARE_TOP).forEach((x, i) => lines.push(line(x, i)));
+  const myAt = done.findIndex(x => x.r.id === uid);
+  if(myAt >= SHARE_TOP) lines.push('…', line(done[myAt], myAt));
+  else if(done.length > SHARE_TOP) lines.push(`…and ${done.length - SHARE_TOP} more`);
+  if(!done.length) lines.push(`Nobody has finished ${Lv.name} yet.`);
+  if(going.length) lines.push('', 'Still playing: ' + going.map(x => `${nameOf(x.r.id)} (${x.lv.played}/${Lv.n})`).join(', '));
+  if(SHARE_URL) lines.push('', SHARE_URL);
+  return lines.join('\n');
+}
+async function shareStandings(text){
+  const out = $('shareOut');
+  const show = msg => { out.hidden = false; out.querySelector('.sub').textContent = msg; out.querySelector('pre').textContent = text; };
+  const touch = matchMedia('(pointer:coarse)').matches;
+  if(touch && navigator.share){
+    try{ await navigator.share({text}); return; }catch(e){ if(e && e.name === 'AbortError') return; }
+  }
+  try{ await navigator.clipboard.writeText(text); show('Copied. Paste it into your group chat.'); return; }catch(e){}
+  show("Couldn't copy automatically. Select the text below and copy it.");
+}
+
 /* ---------- Paste flow ---------- */
 const box = $('pasteBox');
 box.addEventListener('paste', () => setTimeout(() => handle(box.value), 0));
@@ -741,7 +773,8 @@ function render(){
     .sort((a,b) => (b.lv.done - a.lv.done) || (b.lv.total - a.lv.total));
   const lsp = levelSpokes(lid);
   let rk = 0;
-  h += `<div class="card"><div class="row between"><h2 style="margin:0;color:${Lv.color}">${Lv.name} standings</h2><span class="sub">${Lv.n} games · out of ${lmax}</span></div>`;
+  h += `<div class="card"><div class="row between"><h2 style="margin:0;color:${Lv.color}">${Lv.name} standings</h2><div class="row" style="gap:8px"><span class="sub">${Lv.n} games · out of ${lmax}</span>${lvRows.length ? `<button class="chip" id="shareBtn" aria-label="Share ${Lv.name} standings"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>Share</button>` : ''}</div></div>
+    <div id="shareOut" hidden style="margin-top:8px"><div class="sub"></div><pre style="white-space:pre-wrap;user-select:all;background:var(--field);border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:4px 0 0;font:12.5px/1.45 ui-monospace,Menlo,monospace"></pre></div>`;
   h += lvRows.length ? `<div class="list" style="margin-top:6px">` + lvRows.map(({r, lv}) => {
       const done = lv.done, n = done ? ++rk : null;
       return `<div class="li click ${r.id===uid?'me':''} ${r.id===viewing?'sel':''}" data-view="${esc(r.id)}" style="${done ? '' : 'opacity:.45'}">
@@ -754,6 +787,7 @@ function render(){
   $('tab-today').innerHTML = h;
   document.querySelectorAll('[data-view]').forEach(el => el.onclick = () => { chartLevel = lid; viewing = el.dataset.view; render(); });
   if($('backToMe')) $('backToMe').onclick = () => { viewing = uid; render(); };
+  if($('shareBtn')) $('shareBtn').onclick = () => shareStandings(shareText(lid, lvRows, t));
 
   /* Games: grouped by tier (Bronze, Silver, Gold, then bonus), category as plain text */
   const mine = (me() && me().results && me().results[t]) || {};

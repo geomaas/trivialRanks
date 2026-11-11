@@ -6,7 +6,35 @@ A daily trivia leaderboard. Players paste the share text from daily games (Wordl
 
 The whole app is one file, [`index.html`](index.html). Open it in a browser to try it.
 
-**The shared board needs claude.ai.** The page was built as a claude.ai artifact, and it uses that platform's built-in database and sign-in (`window.claude.use('db')` and `window.claude.use('user')`) to share players and results. Opened anywhere else, it shows "Not connected": results stay on that device, and there is no shared leaderboard.
+### Local build with a database
+
+```
+python3 local/server.py
+```
+
+Then open http://localhost:8000. Results are saved in `local/trivia.db` (SQLite), and the leaderboard updates every 2 seconds. Only Python 3 is needed; there's nothing to install.
+
+- **Test with several players:** each browser is its own player. Add `?as=<name>` to the address to act as someone else, e.g. `http://localhost:8000/?as=ana` in a second tab.
+- **Play from phones on your Wi-Fi:** run `python3 local/server.py --lan` and open the "phones" address it prints.
+- **Start over:** stop the server and delete `local/trivia.db`.
+
+The server slips a small stand-in for claude.ai's database and sign-in ([`local/claude-shim.js`](local/claude-shim.js)) into the page as it serves it, so `index.html` is unchanged and still runs on claude.ai. There are no real accounts: anyone who can reach the server can post as any player, so keep it on your own machine or home network.
+
+### Hosted on Vercel with Supabase
+
+Vercel runs [`build.mjs`](build.mjs), which writes `dist/index.html` with Supabase wired in: email-link sign-in, a Postgres `players` table, and live updates. [`web/supabase-shim.js`](web/supabase-shim.js) does the wiring, and `index.html` itself is unchanged.
+
+One-time setup:
+
+1. **Database:** in Supabase, open SQL Editor, paste [`supabase/schema.sql`](supabase/schema.sql) and run it. It creates the `players` table, the access rules (everyone reads, each player writes only their own row) and live updates.
+2. **Sign-in links:** in Supabase → Authentication → URL Configuration, set **Site URL** to the site's address (e.g. `https://trivialranks.vercel.app`) and add it under Redirect URLs as `https://<your-site>/**`. If you want sign-in on preview deployments too, also add their exact address pattern from Vercel → Deployments. Never add a bare `https://*.vercel.app/**`, because that would let any Vercel site receive your sign-in links.
+3. **Keys:** in Vercel → Settings → Environment Variables, check that `SUPABASE_URL` and `SUPABASE_ANON_KEY` exist (the Supabase integration adds them). The build only accepts the public anon/publishable key and refuses a secret one.
+
+Every push to `main` then deploys.
+
+### On claude.ai
+
+**The shared board needs claude.ai.** The page was built as a claude.ai artifact, and it uses that platform's built-in database and sign-in (`window.claude.use('db')` and `window.claude.use('user')`) to share players and results. Opened as a plain file or from other hosting (without the local server above), it shows "Not connected": results stay on that device, and there is no shared leaderboard.
 
 ## Plan
 
