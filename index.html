@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>It's Trivial</title>
+<script>
+  // Apply the saved theme before the page draws, so there's no flash.
+  (function(){ var p; try{ p = JSON.parse(localStorage.getItem('theme')); }catch(e){}
+    p = p || 'system';
+    var dark = p === 'dark' || (p === 'system' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light'; })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#f5efe3; --card:#fffdf8; --ink:#1f1c17; --muted:#6f685c; --line:#e3dacb;
+    --accent:#2f5d50; --accent-soft:#e2ece6; --warm:#b4532a; --warm-soft:#f6e3d8; --gold:#c99a2e;
+    --field:#fffaf0; --chip:#ebe3d4; --soft:#efe8da; --soft2:#ece6da; --grid:#e8e0d2; --faint:#9b9385; --idle:#d8cfbf;
+    --surface:#fff; --solid:#1f1c17; --on-solid:#fff; --notice:#fff6e5; --notice-line:#e8c77a;
+    color-scheme:light;
+  }
+  :root[data-theme="dark"]{
+    --paper:#15130f; --card:#1f1c17; --ink:#efe9de; --muted:#a59d8f; --line:#38332a;
+    --accent:#3f8a73; --accent-soft:#1d322b; --warm:#e0784a; --warm-soft:#3a2519; --gold:#d4a73a;
+    --field:#27231c; --chip:#2b2720; --soft:#322d24; --soft2:#2e2a22; --grid:#36312a; --faint:#7d7568; --idle:#4a443a;
+    --surface:#1f1c17; --solid:#efe9de; --on-solid:#1f1c17; --notice:#2e2616; --notice-line:#6b5726;
+    color-scheme:dark;
+  }
+  html,body{transition:background .2s}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--paper);color:var(--ink);font-family:Inter,system-ui,sans-serif;font-size:15px;line-height:1.45}
+  .wrap{max-width:560px;margin:0 auto;padding:18px 16px 60px}
+  header{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:14px}
+  h1{font-family:Fraunces,serif;font-weight:800;font-size:30px;line-height:1;margin:0;letter-spacing:-.5px}
+  h1 span{color:var(--warm)}
+  .date{color:var(--muted);font-size:13px;margin-top:4px}
+  h2{font-family:Fraunces,serif;font-weight:600;font-size:19px;margin:0 0 10px}
+  h3{font-size:13px;text-transform:uppercase;letter-spacing:.6px;margin:0;font-weight:700}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:14px}
+  .chip{display:inline-flex;align-items:center;gap:6px;background:var(--accent-soft);color:var(--accent);border-radius:999px;padding:4px 10px;font-size:12.5px;font-weight:600;border:0;cursor:pointer;font-family:inherit}
+  .status{font-size:12.5px;color:var(--muted)}
+  .status.warn{color:var(--warm)}
+  textarea{width:100%;min-height:92px;border:2px dashed var(--line);border-radius:12px;padding:12px;font:14px/1.4 Inter,sans-serif;background:var(--field);color:var(--ink);resize:vertical}
+  textarea:focus{outline:none;border-color:var(--accent);border-style:solid}
+  .row{display:flex;gap:8px;align-items:center}
+  .between{justify-content:space-between}
+  .grow{flex:1;min-width:0}
+  button.btn{border:0;border-radius:10px;padding:10px 14px;font:600 14px Inter,sans-serif;cursor:pointer;background:var(--accent);color:#fff}
+  button.btn.ghost{background:transparent;color:var(--muted);border:1px solid var(--line)}
+  button.btn:disabled{opacity:.45;cursor:default}
+  .hint{font-size:12.5px;color:var(--muted);margin-top:8px}
+  .confirm{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  .confirm.bad{border-color:var(--warm);box-shadow:0 0 0 3px var(--warm-soft)}
+  .big{font-family:Fraunces,serif;font-weight:800;font-size:34px;line-height:1.1}
+  .meta{color:var(--muted);font-size:13px}
+  .badge{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;padding:2px 7px;border-radius:6px;background:var(--accent-soft);color:var(--accent);vertical-align:middle}
+  .badge.beta{background:var(--warm-soft);color:var(--warm)}
+  .badge.bonus{background:var(--soft2);color:var(--muted)}
+  .cat{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;color:var(--muted)}
+  .cat i{width:10px;height:10px;border-radius:50%;display:inline-block}
+  nav{display:flex;gap:6px;margin:4px 0 14px;background:var(--chip);padding:4px;border-radius:12px}
+  nav button{flex:1;border:0;background:transparent;padding:9px 0;border-radius:9px;font:600 14px Inter,sans-serif;color:var(--muted);cursor:pointer}
+  nav button.on{background:var(--card);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+  .seg{display:inline-flex;background:var(--chip);border-radius:9px;padding:3px}
+  .seg button{border:0;background:transparent;padding:5px 10px;border-radius:7px;font:600 12.5px Inter,sans-serif;color:var(--muted);cursor:pointer}
+  .seg button.on{background:var(--card);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+  .list{display:flex;flex-direction:column}
+  .li{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line)}
+  .li:first-child{border-top:0}
+  .li.click{cursor:pointer}
+  .li.sel{background:linear-gradient(90deg,var(--accent-soft),transparent);margin:0 -14px;padding-left:14px;padding-right:14px}
+  .rank{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:13px;background:var(--soft);color:var(--muted);flex:none}
+  .rank.r1{background:var(--gold);color:#fff}
+  .name{font-weight:600}
+  .me .name::after{content:" (you)";font-weight:400;color:var(--muted)}
+  .score{font-weight:700;font-variant-numeric:tabular-nums}
+  .sub{font-size:12px;color:var(--muted)}
+  .game{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--line)}
+  .game:first-child{border-top:0}
+  .dot{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;flex:none;font-weight:800;font-family:Fraunces,serif;color:#fff}
+  .dot.todo{background:var(--surface)!important;border:2px solid currentColor}
+  a.play{text-decoration:none;background:var(--solid);color:var(--on-solid);border-radius:9px;padding:8px 12px;font-weight:600;font-size:13.5px;white-space:nowrap}
+  a.play.done{background:transparent;color:var(--muted);border:1px solid var(--line)}
+  .catblock{border-left:5px solid;padding-left:12px;margin:14px 0 4px}
+  .catblock:first-child{margin-top:4px}
+  .progress{height:8px;background:var(--chip);border-radius:99px;overflow:hidden;margin-top:6px}
+  .progress div{height:100%;background:var(--accent);border-radius:99px}
+  .empty{color:var(--muted);font-size:14px;padding:6px 0}
+  .namebox input{flex:1;border:1px solid var(--line);border-radius:10px;padding:9px 11px;font:15px Inter,sans-serif;background:var(--field)}
+  .legend{display:flex;flex-wrap:wrap;gap:6px 12px;margin-top:6px}
+  .cattable{width:100%;border-collapse:collapse;margin-top:6px;font-size:13.5px}
+  .cattable td{padding:5px 0;border-top:1px solid var(--line)}
+  .cattable td:last-child{text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
+  [hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>It's <span>Trivial</span></h1>
+      <div class="date" id="dateLine"></div>
+    </div>
+    <div class="row" style="gap:6px">
+      <button class="chip" id="statsBtn" aria-label="History and stats"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Stats</button>
+      <button class="chip" id="nameChip" aria-label="Your profile"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>Profile</button>
+    </div>
+  </header>
+
+  <div class="card namebox" id="nameBox" hidden>
+    <h2>What should we call you?</h2>
+    <div class="row">
+      <input id="nameInput" maxlength="24" placeholder="Your name on the board">
+      <button class="btn" id="nameSave">Save</button>
+    </div>
+    <div class="hint">Shown to everyone on this board.</div>
+  </div>
+
+  <div class="card" id="pasteCard">
+    <div class="row between" style="margin-bottom:8px">
+      <h2 style="margin:0">Log a result</h2>
+      <span class="status" id="conn">Connecting…</span>
+    </div>
+    <div id="pasteBody">
+      <textarea id="pasteBox" placeholder="Tap Share in the game, come back, then long-press here and choose Paste."></textarea>
+      <div class="hint">Paste from any game; the board works out which one it is.</div>
+    </div>
+    <button class="btn ghost" id="pasteOpen" hidden style="width:100%">+ Paste another result</button>
+  </div>
+
+  <div class="card confirm" id="confirm" hidden></div>
+
+  <div class="card" id="demoBar" style="padding:10px 14px;display:flex;align-items:center;gap:10px"></div>
+
+  <nav>
+    <button data-tab="today" class="on">Today</button>
+    <button data-tab="games">Games</button>
+    <button data-tab="week">This week</button>
+  </nav>
+
+  <section id="tab-today"></section>
+  <section id="tab-games" hidden></section>
+  <section id="tab-week" hidden></section>
+  <section id="page" hidden></section>
+</div>
+
+<script>
+/* ---------- Categories ---------- */
+const CATS = [
+  {id:'words',  name:'Words',             short:'Words',   color:'#127a7a'},
+  {id:'places', name:'Places',            short:'Places',  color:'#2563b8'},
+  {id:'screen', name:'Screen & Sound',    short:'Screen',  color:'#c2408a'},
+  {id:'history',name:'History',           short:'History', color:'#c98a16'},
+  {id:'sports', name:'Sports',            short:'Sports',  color:'#e06a1b'},
+  {id:'gen',    name:'General Knowledge', short:'General', color:'#6d4bb3'},
+];
+const C = Object.fromEntries(CATS.map(c => [c.id, c]));
+
+/* ---------- Games ----------
+   higher: bigger score is better. max: best possible (points games).
+   Guess games: best (default 1) and fail = score stored for a miss. */
+const GAMES = [
+  {id:'wordle',     name:'Wordle',          cat:'words',  url:'https://www.nytimes.com/games/wordle/index.html', higher:false, fail:7, verified:true},
+  {id:'quordle',    name:'Quordle',         cat:'words',  url:'https://www.merriam-webster.com/games/quordle', higher:false, best:10, fail:40},
+  {id:'octordle',   name:'Octordle',        cat:'words',  url:'https://octordle.com',           higher:false, best:36, fail:112},
+  {id:'waffle',     name:'Waffle',          cat:'words',  url:'https://wafflegame.net',         higher:true,  max:5,     keys:['waffle']},
+  {id:'maptap',     name:'MapTap',          cat:'places', url:'https://maptap.gg',              higher:true,  max:1000,  verified:true},
+  {id:'worldle',    name:'Worldle',         cat:'places', url:'https://worldle.teuteuf.fr',     higher:false, fail:7,    keys:['worldle']},
+  {id:'globle',     name:'Globle',          cat:'places', url:'https://globle-game.com',        higher:false, fail:30,   keys:['globle']},
+  {id:'travle',     name:'Travle',          cat:'places', url:'https://travle.earth',           higher:false, fail:20,   keys:['travle']},
+  {id:'framed',     name:'Framed',          cat:'screen', url:'https://framed.wtf',             higher:false, fail:7,    keys:['framed']},
+  {id:'bandle',     name:'Bandle',          cat:'screen', url:'https://bandle.app',             higher:false, fail:7,    keys:['bandle']},
+  {id:'actorle',    name:'Actorle',         cat:'screen', url:'https://actorle.com',            higher:false, fail:9,    keys:['actorle']},
+  {id:'artle',      name:'Artle',           cat:'screen', url:'https://www.nga.gov/artle.html', higher:false, fail:5,    keys:['artle']},
+  {id:'timeguessr', name:'TimeGuessr',      cat:'history', url:'https://timeguessr.com',         higher:true,  max:50000, keys:['timeguessr']},
+  {id:'immaculate', name:'Immaculate Grid', short:'Imm. Grid', cat:'sports', url:'https://www.immaculategrid.com', higher:true, max:9, keys:['immaculate grid','immaculategrid']},
+  {id:'catfishing', name:'Catfishing',      cat:'gen',    url:'https://catfishing.net',         higher:true,  max:10,    verified:true},
+  {id:'krillion',   name:'Krillion',        cat:'gen',    url:'https://krillion.io',            higher:true,  max:700,   keys:['krillion']},
+];
+const G = Object.fromEntries(GAMES.map(g => [g.id, g]));
+// Counting games in level order. Bronze = first 3, Silver = first 5, Gold = all 8.
+const SPOKES = [
+  // pos = position on the octagon (0 = top, clockwise). Bronze sits on a triangle,
+  // Bronze + Silver on a pentagon, all eight on the octagon.
+  {id:'wordle',     cat:'words',   pos:0},
+  {id:'maptap',     cat:'places',  pos:3},
+  {id:'framed',     cat:'screen',  pos:5},
+  {id:'catfishing', cat:'gen',     pos:2},
+  {id:'timeguessr', cat:'history', pos:6},
+  {id:'krillion',   cat:'gen',     pos:1},
+  {id:'immaculate', cat:'sports',  pos:4},
+  {id:'bandle',     cat:'screen',  pos:7},
+].map(x => ({...x, game:x.id, color:C[x.cat].color, name:C[x.cat].name, short:C[x.cat].short}));
+const LEVELS = [
+  {id:'bronze', name:'Bronze', n:3, color:'#a8693b'},
+  {id:'silver', name:'Silver', n:5, color:'#7d868f'},
+  {id:'gold',   name:'Gold',   n:8, color:'#c99a2e'},
+];
+const L = Object.fromEntries(LEVELS.map(l => [l.id, l]));
+const levelSpokes = lid => SPOKES.slice(0, L[lid].n);
+// The level a counting game first appears in (Bronze, Silver or Gold).
+function levelOf(gid){ const i = SPOKES.findIndex(x => x.game === gid); return i < 0 ? null : LEVELS.find(l => i < l.n); }
+const levelBadge = l => `<span class="badge" style="background:${l.color};color:#fff">${esc(l.name)}</span>`;
+
+/* ---------- Dates ---------- */
+const pad = n => String(n).padStart(2,'0');
+const isoLocal = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const today = () => isoLocal(new Date());
+function addDays(iso, n){ const d = new Date(iso+'T12:00:00Z'); d.setUTCDate(d.getUTCDate()+n); return d.toISOString().slice(0,10); }
+function daysBetween(a, b){ return Math.round((Date.parse(b+'T12:00:00Z') - Date.parse(a+'T12:00:00Z'))/864e5); }
+const MONTHS = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+function prettyDay(iso){ const d = new Date(iso+'T12:00:00'); return d.toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'}); }
+const isOfficial = gid => SPOKES.some(x => x.game === gid);
+
+/* ---------- Parsers ---------- */
+function parseWordle(t){
+  const m = t.match(/Wordle\s+([\d,.]+)\s+([1-6X])\/6(\*)?/i);
+  if(!m) return null;
+  const n = +m[1].replace(/[,.]/g,'');
+  const fail = m[2].toUpperCase()==='X';
+  return {game:'wordle', puzzle:'#'+n, day:addDays('2021-06-19', n),
+          score: fail ? 7 : +m[2], display: (fail?'X':m[2])+'/6'+(m[3]?' (hard)':''), verified:true};
+}
+function parseMapTap(t){
+  if(!/maptap\.gg/i.test(t)) return null;
+  const fm = t.match(/Final score:\s*([\d,]+)/i);
+  if(!fm) return null;
+  const score = +fm[1].replace(/,/g,'');
+  let day = today(), puzzle = '', rounds = [];
+  const dm = t.match(/maptap\.gg\s+([A-Za-z]+)\s+(\d{1,2})/i);
+  if(dm){
+    const mi = MONTHS.indexOf(dm[1].slice(0,3).toLowerCase());
+    if(mi >= 0){
+      const y = new Date().getFullYear();
+      let cand = `${y}-${pad(mi+1)}-${pad(+dm[2])}`;
+      if(cand > addDays(today(),1)) cand = `${y-1}-${pad(mi+1)}-${pad(+dm[2])}`;
+      day = cand; puzzle = `${dm[1]} ${dm[2]}`;
+    }
+    const seg = t.slice(dm.index + dm[0].length, fm.index);
+    rounds = (seg.match(/\b\d{1,3}\b/g) || []).map(Number).filter(n => n <= 100).slice(0,5);
+  }
+  return {game:'maptap', puzzle, day, score, display: score+' / 1000', rounds, verified:true};
+}
+function parseCatfishing(t){
+  if(!/🐈|🐟|catfishing/i.test(t)) return null;
+  const m = t.match(/#(\d+)\s*[-–—]\s*(\d+(?:\.5)?)\s*\/\s*10/);
+  if(!m) return null;
+  const s = parseFloat(m[2]);
+  return {game:'catfishing', puzzle:'#'+m[1], day:today(), score:s, display:s+'/10', verified:true};
+}
+function parseQuordle(t){
+  const m = t.match(/Quordle\s*#?\s*(\d+)/i);
+  if(!m) return null;
+  const rest = t.slice(m.index + m[0].length);
+  const digits = [...rest.matchAll(/([1-9])\uFE0F?\u20E3/g)].map(x => +x[1]);
+  const misses = [...rest].filter(c => c === '🟥').length;
+  if(digits.length + misses < 4) return {game:'quordle', error:"Recognised Quordle, but couldn't read all four words."};
+  const score = digits.slice(0,4).reduce((a,b)=>a+b,0) + Math.min(misses, 4-Math.min(4,digits.length))*10;
+  return {game:'quordle', puzzle:'#'+m[1], day:today(), score, display:`${digits.slice(0,4).join('-')}${misses?' + '+misses+' missed':''}`, verified:false};
+}
+function parseOctordle(t){
+  const m = t.match(/Octordle\s*#?\s*(\d+)/i);
+  if(!m) return null;
+  const sc = t.match(/Score:\s*(\d+)/i);
+  if(!sc) return {game:'octordle', error:"Recognised Octordle, but couldn't find its Score line."};
+  return {game:'octordle', puzzle:'#'+m[1], day:today(), score:+sc[1], display:'Score '+sc[1], verified:false};
+}
+function parseGeneric(t){
+  const low = t.toLowerCase();
+  const g = GAMES.find(x => x.keys && x.keys.some(k => low.includes(k)));
+  if(!g) return null;
+  const pm = t.match(/#\s?(\d[\d,]*)/);
+  const puzzle = pm ? '#'+pm[1] : '';
+  const fr = t.replace(/#\s?\d[\d,]*/,'').match(/(\d[\d,]*|X)\s*\/\s*(\d[\d,]*)/i);
+  let score = null, display = '';
+  if(fr){
+    const v = fr[1].toUpperCase()==='X' ? (g.fail || +fr[2].replace(/,/g,'')+1) : +fr[1].replace(/,/g,'');
+    score = v; display = `${fr[1]}/${fr[2]}`;
+  } else if(!g.higher){
+    const sq = [...t].filter(c => '🟥🟩⬛⬜🟨🟧'.includes(c));
+    if(sq.length){
+      const i = sq.indexOf('🟩');
+      score = i >= 0 ? i+1 : g.fail;
+      display = i >= 0 ? `${i+1} ${i===0?'try':'tries'}` : 'Missed';
+    }
+  } else {
+    const nums = (t.match(/\d[\d,]*/g) || []).map(s => +s.replace(/,/g,'')).filter(n => !isNaN(n) && n <= g.max);
+    if(nums.length){ score = Math.max(...nums); display = score.toLocaleString(); }
+  }
+  if(score === null) return {game:g.id, error:`Recognised ${g.name}, but couldn't find a score in it.`};
+  return {game:g.id, puzzle, day:today(), score, display, verified:false};
+}
+function parseResult(text){
+  const t = text.trim();
+  if(!t) return null;
+  return parseWordle(t) || parseMapTap(t) || parseCatfishing(t) || parseQuordle(t) || parseOctordle(t) || parseGeneric(t)
+      || {error:"That doesn't look like a result from any game on the board yet."};
+}
+
+/* ---------- Scoring ---------- */
+// Percent of the best possible score, 0-100.
+function pctMax(gid, s){
+  const g = G[gid];
+  const v = g.higher ? s / g.max * 100 : (g.fail - s) / (g.fail - (g.best || 1)) * 100;
+  return Math.max(0, Math.min(100, Math.round(v)));
+}
+function better(g, a, b){ return G[g].higher ? a > b : a < b; }
+// Percentile among everyone who played this game that day: 100 = best, 0 = worst.
+function pct(entries, g, s){
+  const n = entries.length; if(n <= 1) return 100;
+  let worse = 0, equal = 0;
+  for(const e of entries){ if(better(g, s, e)) worse++; else if(e === s) equal++; }
+  return Math.round((worse + 0.5*(equal-1)) / (n-1) * 100);
+}
+// Points per game: your percentile among everyone who played it today (100 = best).
+// With fewer than 3 players a percentile means little, so it falls back to % of the best possible score.
+const MIN_FOR_PCT = 3;
+function points(gid, score, byGame){
+  const list = (byGame[gid] || []).map(x => x.e.score);
+  return list.length >= MIN_FOR_PCT ? pct(list, gid, score) : pctMax(gid, score);
+}
+// Scores every player's counting games for a day and finds the highest level each one finished.
+function dayData(day){
+  const byGame = {};
+  for(const [id,p] of Object.entries(players)){
+    const r = (p.results||{})[day] || {};
+    for(const [g,e] of Object.entries(r)){ if(G[g]) (byGame[g] ||= []).push({id, e}); }
+  }
+  const all = [];
+  for(const id of Object.keys(players)){
+    const r = (players[id].results||{})[day] || {};
+    const cats = {}; let bonus = 0, played = 0;
+    for(const c of SPOKES){
+      const e = r[c.game];
+      if(e){
+        const v = points(c.game, e.score, byGame);
+        cats[c.id] = {v, gid:c.game, e}; played++;
+      } else cats[c.id] = null;
+    }
+    for(const g of Object.keys(r)) if(G[g] && !isOfficial(g)) bonus++;
+    if(!played && !bonus) continue;
+    const levels = LEVELS.map(l => {
+      const sp = levelSpokes(l.id), n = sp.filter(c => cats[c.id]).length;
+      return {...l, played:n, done:n === l.n, total: sp.reduce((a,c) => a + (cats[c.id] ? cats[c.id].v : 0), 0)};
+    });
+    const top = levels.filter(l => l.done).at(-1) || null;
+    all.push({id, cats, played, bonus, levels, top, total: top ? top.total : 0});
+  }
+  // Ranked: highest level finished first, then points at that level.
+  const rank = r => r.top ? LEVELS.findIndex(l => l.id === r.top.id) : -1;
+  const rows = all.filter(r => r.top).sort((a,b) => rank(b) - rank(a) || b.total - a.total);
+  const partial = all.filter(r => !r.top).sort((a,b) => b.played - a.played);
+  return {rows, partial, all, byGame};
+}
+
+/* ---------- State ---------- */
+let db = null, user = null, uid = null, players = {}, profiles = {}, ready = false, saving = false;
+let pending = null, viewing = null, chartLevel = null, page = null, pasteOpen = false;
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function store(k, v){ try{ v===undefined ? localStorage.removeItem(k) : localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+function load(k){ try{ return JSON.parse(localStorage.getItem(k)); }catch(e){ return null; } }
+const me = () => players[uid];
+function nameOf(id){ return (players[id] && players[id].name) || (profiles[id] && profiles[id].name) || 'Player'; }
+const catTag = c => `<span class="cat"><i style="background:${C[c].color}"></i>${esc(C[c].name)}</span>`;
+
+/* ---------- Spider chart ---------- */
+// A short form of a result for chart labels: the long point totals drop their "out of".
+function chartScore(gid, e){
+  if(gid === 'maptap' || gid === 'timeguessr' || gid === 'krillion') return Number(e.score).toLocaleString();
+  return e.display;
+}
+// Draws one level: Bronze as a triangle, Silver a pentagon, Gold an octagon. Games are spaced evenly.
+function spider(row, lid){
+  const Lv = L[lid], sp = levelSpokes(lid).slice().sort((a,b) => a.pos - b.pos), n = sp.length, R = 100;
+  const ang = i => -Math.PI/2 + i * 2*Math.PI/n;
+  const pt = (i, v) => [Math.cos(ang(i)) * R * v/100, Math.sin(ang(i)) * R * v/100];
+  const f = x => x.toFixed(1);
+  const poly = val => sp.map((c,i) => pt(i, val(c)).map(f).join(',')).join(' ');
+  const done = row && row.levels.find(x => x.id === lid).done;
+  let s = `<svg viewBox="-222 -176 444 346" width="100%" style="margin-top:14px" role="img" aria-label="${Lv.name} scores">`;
+  s += `<polygon points="${poly(() => 100)}" fill="${Lv.color}" fill-opacity=".06" stroke="${Lv.color}" stroke-opacity=".6" stroke-width="1.5"/>`;
+  for(const ring of [25,50,75]) s += `<polygon points="${poly(() => ring)}" fill="none" stroke="var(--grid)" stroke-width="1"/>`;
+  sp.forEach((c,i) => {
+    const l = levelOf(c.game), g = G[c.game], [x,y] = pt(i,100);
+    s += `<line x1="0" y1="0" x2="${f(x)}" y2="${f(y)}" stroke="${l.color}" stroke-opacity=".35" stroke-width="1.25"/>`;
+    const [lx,ly0] = pt(i,124), anchor = Math.abs(lx) < 8 ? 'middle' : lx > 0 ? 'start' : 'end';
+    const ly = anchor === 'middle' && ly0 < 0 ? ly0 - 26 : ly0;  // the top label stacks upward, clear of the shape
+    const v = row && row.cats[c.id] ? row.cats[c.id].v : null;
+    s += `<a href="${g.url}" target="_blank" rel="noopener" data-game="${g.id}" class="spoke"><title>Play ${esc(g.name)} (${l.name})</title>`;
+    s += `<rect x="${f(anchor==='start'?lx-4:anchor==='end'?lx-96:lx-50)}" y="${f(ly-12)}" width="100" height="46" fill="transparent"/>`;
+    const e = row && row.cats[c.id] ? row.cats[c.id].e : null;
+    s += `<text x="${f(lx)}" y="${f(ly+2)}" text-anchor="${anchor}" font-size="12" font-weight="700" fill="${l.color}" text-decoration="underline">${esc(g.short||g.name)}${v===null?' ↗':''}</text>`;
+    s += e ? `<text x="${f(lx)}" y="${f(ly+17)}" text-anchor="${anchor}" font-size="12" font-weight="600" fill="var(--ink)">${esc(chartScore(c.game, e))}</text>
+             <text x="${f(lx)}" y="${f(ly+30)}" text-anchor="${anchor}" font-size="10.5" fill="var(--muted)">${v} pts</text>`
+           : `<text x="${f(lx)}" y="${f(ly+17)}" text-anchor="${anchor}" font-size="11" fill="var(--muted)">not played</text>`;
+    s += `</a>`;
+  });
+  if(row){
+    const val = c => row.cats[c.id] ? row.cats[c.id].v : 0;
+    s += `<polygon points="${poly(val)}" fill="${Lv.color}" fill-opacity="${done ? .22 : .07}" stroke="${Lv.color}" stroke-width="2.5" stroke-linejoin="round" ${done ? '' : 'stroke-dasharray="5 4"'}/>`;
+    sp.forEach((c,i) => {
+      const x = row.cats[c.id], [px,py] = pt(i, x ? x.v : 0), col = levelOf(c.game).color;
+      s += x ? `<circle cx="${f(px)}" cy="${f(py)}" r="5.5" fill="${col}" stroke="var(--card)" stroke-width="1.5"/>`
+             : `<circle cx="${f(px)}" cy="${f(py)}" r="3.5" fill="var(--card)" stroke="${col}" stroke-width="1.25"/>`;
+    });
+  }
+  return s + `</svg>`;
+}
+// A row of category dots: filled for each category played today.
+function pie(row, list = SPOKES){
+  return `<span style="display:inline-flex;gap:3px;flex:none">` + list.map(c =>
+    `<i title="${esc(c.name)}" style="width:8px;height:8px;border-radius:50%;display:inline-block;${row.cats[c.id] ? 'background:'+levelOf(c.game).color : 'border:1.5px solid '+levelOf(c.game).color+';opacity:.45'}"></i>`).join('') + `</span>`;
+}
+
+/* ---------- Paste flow ---------- */
+const box = $('pasteBox');
+box.addEventListener('paste', () => setTimeout(() => handle(box.value), 0));
+box.addEventListener('input', () => { clearTimeout(box._t); box._t = setTimeout(() => handle(box.value), 600); });
+function handle(text){
+  const r = parseResult(text);
+  if(!r){ hideConfirm(); return; }
+  pending = r.error ? null : r;
+  showConfirm(r, text);
+}
+function hideConfirm(){ $('confirm').hidden = true; pending = null; }
+function showConfirm(r, raw){
+  const c = $('confirm'); c.hidden = false;
+  if(r.error){
+    c.className = 'card confirm bad';
+    c.innerHTML = `<h2>Couldn't read that</h2><div class="meta">${esc(r.error)}</div>
+      <div class="row" style="margin-top:12px"><button class="btn ghost" id="cClear">Clear</button></div>`;
+    $('cClear').onclick = clearPaste; return;
+  }
+  const g = G[r.game], t = today(), y = addDays(t,-1);
+  let problem = '';
+  if(r.day > t) problem = "This puzzle is dated in the future, so it can't be logged.";
+  else if(r.day < y) problem = 'Results can only be logged within a day of the puzzle.';
+  else if(me() && me().results && me().results[r.day] && me().results[r.day][r.game]) problem = `You already logged ${g.name} for ${r.day === t ? 'today' : 'yesterday'}. Results are locked once saved.`;
+  const canSave = !problem && ready && !saving;
+  const off = levelOf(r.game);
+  c.className = 'card confirm' + (problem ? ' bad' : '');
+  c.style.borderLeft = `6px solid ${off ? off.color : 'var(--line)'}`;
+  c.innerHTML = `
+    <div class="row between">
+      <div>${off ? levelBadge(off) : '<span class="badge bonus">bonus</span>'} <span class="sub">${esc(C[g.cat].name)}</span><h2 style="margin:4px 0 0">${esc(g.name)} ${esc(r.puzzle||'')}</h2></div>
+      <span class="badge ${r.verified?'':'beta'}">${r.verified?'Parsed':'Beta parser'}</span>
+    </div>
+    <div class="big" style="margin:8px 0 2px">${esc(r.display)}</div>
+    <div class="meta">${r.day === t ? 'Today' : 'Yesterday'} · ${pctMax(r.game, r.score)}% of max${off ? ' · counts toward ' + esc(off.name) + (off.id==='gold' ? '' : ' and up') : ' · bonus game (not on the chart)'}${r.rounds && r.rounds.length ? ' · rounds ' + r.rounds.join(', ') : ''}</div>
+    ${!r.verified ? '<div class="hint">We haven\'t seen this game\'s share text yet, so check the score looks right.</div>' : ''}
+    ${problem ? `<div class="hint" style="color:var(--warm)">${esc(problem)}</div>` : ''}
+    ${!ready ? '<div class="hint" style="color:var(--warm)">Saving needs the shared board, which isn\'t connected yet.</div>' : ''}
+    <div class="row" style="margin-top:12px">
+      <button class="btn grow" id="cSave" ${canSave?'':'disabled'}>Save to board</button>
+      <button class="btn ghost" id="cClear">Clear</button>
+    </div>`;
+  c._raw = raw;
+  $('cSave').onclick = save; $('cClear').onclick = clearPaste;
+}
+function clearPaste(){ box.value=''; hideConfirm(); }
+async function save(){
+  if(!pending || saving || !ready) return;
+  const r = pending, raw = ($('confirm')._raw || '').slice(0, 600);
+  const entry = {score:r.score, display:r.display, puzzle:r.puzzle||'', raw, at:new Date().toISOString(), verified:!!r.verified};
+  const launched = load('launch:'+r.game+':'+r.day); if(launched) entry.launchedAt = launched;
+  if(r.rounds && r.rounds.length) entry.rounds = r.rounds;
+  saving = true; $('cSave').disabled = true; $('cSave').textContent = 'Saving…';
+  try{
+    const ref = db.doc('players/'+uid);
+    if(me()) await ref.update({results:{[r.day]:{[r.game]:entry}}});
+    else await ref.set({name: load('name') || '', results:{[r.day]:{[r.game]:entry}}});
+    box.value=''; hideConfirm(); viewing = uid; switchTab('today');
+  }catch(e){
+    $('cSave').textContent = e && e.code === 'invalid_argument' ? "You can view this board but not post to it" : 'Couldn\'t save, try again';
+    $('cSave').disabled = !(e && e.code !== 'invalid_argument');
+  }finally{ saving = false; }
+}
+
+/* ---------- Name ---------- */
+$('nameChip').onclick = () => openPage('profile');
+$('statsBtn').onclick = () => openPage('stats');
+$('nameSave').onclick = async () => {
+  const n = $('nameInput').value.trim().slice(0,24); if(!n) return;
+  store('name', n);
+  if(ready){
+    try{ const ref = db.doc('players/'+uid); if(me()) await ref.update({name:n}); else await ref.set({name:n, results:{}}); }catch(e){}
+  }
+  $('nameBox').hidden = true; renderHeader();
+};
+
+/* ---------- Theme: light, dark, or follow the phone ---------- */
+let theme = load('theme') || 'system';
+const darkQuery = window.matchMedia ? matchMedia('(prefers-color-scheme: dark)') : null;
+function applyTheme(){
+  const dark = theme === 'dark' || (theme === 'system' && darkQuery && darkQuery.matches);
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+}
+if(darkQuery) (darkQuery.addEventListener ? darkQuery.addEventListener('change', () => { if(theme === 'system') applyTheme(); }) : darkQuery.addListener(() => { if(theme === 'system') applyTheme(); }));
+const themeSeg = () => `<div class="seg" role="group" aria-label="Appearance">` + [['system','Phone setting'],['light','Light'],['dark','Dark']].map(([k,label]) =>
+  `<button data-theme-pick="${k}" class="${theme===k?'on':''}">${label}</button>`).join('') + `</div>`;
+function wireTheme(){ document.querySelectorAll('[data-theme-pick]').forEach(b => b.onclick = () => { theme = b.dataset.themePick; store('theme', theme); applyTheme(); render(); }); }
+
+/* ---------- Profile and Stats pages ---------- */
+function openPage(p){ page = page === p ? null : p; window.scrollTo(0,0); render(); }
+const MAIN_IDS = ['pasteCard','tab-today','tab-games','tab-week'];
+function showPage(on){
+  MAIN_IDS.forEach(id => { if(on) $(id).hidden = true; });
+  document.querySelector('nav').hidden = on;
+  if(on){ $('confirm').hidden = true; $('nameBox').hidden = true; }
+  else { $('pasteCard').hidden = false; const t = document.querySelector('nav button.on').dataset.tab; ['today','games','week'].forEach(x => $('tab-'+x).hidden = x !== t); }
+  $('page').hidden = !on;
+}
+// Every day the player has results, newest first, each with its levels and points (% of max).
+function myDays(id){
+  const res = (players[id] && players[id].results) || {};
+  const days = Object.keys(res).sort().reverse().map(day => ({day, row: dayData(day).all.find(r => r.id === id)})).filter(x => x.row);
+  return days;
+}
+function streaks(days){
+  const done = new Set(days.filter(d => d.row.top).map(d => d.day));
+  let cur = 0, d = today();
+  if(!done.has(d)) d = addDays(d, -1);
+  while(done.has(d)){ cur++; d = addDays(d, -1); }
+  let best = 0, run = 0, prev = null;
+  [...done].sort().forEach(x => { run = prev && addDays(prev, 1) === x ? run + 1 : 1; best = Math.max(best, run); prev = x; });
+  return {cur, best};
+}
+const backBar = title => `<div class="row" style="margin-bottom:12px"><button class="btn ghost" id="pageBack" style="padding:7px 12px">← Back</button><h2 style="margin:0 0 0 6px">${title}</h2></div>`;
+const tile = (big, label, color) => `<div style="flex:1;min-width:30%;background:var(--field);border:1px solid var(--line);border-radius:12px;padding:10px"><div class="big" style="font-size:24px;${color?'color:'+color:''}">${big}</div><div class="sub">${label}</div></div>`;
+
+function renderProfile(){
+  const p = me() || {}, days = myDays(uid);
+  const since = days.length ? days.at(-1).day : null;
+  const groups = demo ? [DEMO_GROUP + ' (sample)', 'Global board'] : ['Global board'];
+  return backBar('Profile') + `
+  <div class="card">
+    <div class="row" style="gap:14px">
+      <div style="width:56px;height:56px;border-radius:50%;background:var(--accent);color:#fff;display:grid;place-items:center;font:800 24px Fraunces,serif;flex:none">${esc(((p.name || load('name') || '?')[0] || '?').toUpperCase())}</div>
+      <div class="grow"><div class="name" style="font-size:18px">${esc(p.name || load('name') || 'No name yet')}</div>
+        <div class="sub">${since ? 'Playing since ' + new Date(since+'T12:00:00').toLocaleDateString(undefined,{month:'long',day:'numeric',year:'numeric'}) : 'No results yet'}</div></div>
+    </div>
+    <div class="row namebox" style="margin-top:14px">
+      <input id="profName" maxlength="24" placeholder="Display name" value="${esc(p.name || load('name') || '')}" ${demo ? 'disabled' : ''}>
+      <button class="btn" id="profSave" ${demo ? 'disabled' : ''}>Save</button>
+    </div>
+    <div class="hint">${demo ? 'Name changes are off while previewing the sample group.' : 'Shown to everyone on your boards.'}</div>
+  </div>
+  <div class="card"><h2>Groups</h2><div class="list">${groups.map(g => `<div class="li"><div class="grow name">${esc(g)}</div></div>`).join('')}</div>
+    <div class="hint">Creating and joining groups comes with the full site.</div></div>
+  <div class="card"><h2>Preferences</h2>
+    <div class="row between" style="flex-wrap:wrap;gap:8px"><span>Appearance</span>${themeSeg()}</div>
+    <div class="hint" style="margin-top:12px">Sign-in: this prototype uses your claude.ai account. The full site will use Google or an emailed sign-in link.</div></div>`;
+}
+
+function renderStats(){
+  const days = myDays(uid), st = streaks(days);
+  const count = id => days.filter(d => d.row.top && d.row.top.id === id).length;
+  // Daily bars, last 30 days, height = points at the highest level finished (of 800), colored by that level.
+  const t = today(), span = [...Array(30)].map((_,i) => addDays(t, i - 29));
+  const byDay = Object.fromEntries(days.map(d => [d.day, d.row]));
+  const W = 360, H = 120, X0 = 24, bw = (W - X0) / 30;
+  let chart = `<svg viewBox="0 -8 ${W} ${H + 26}" width="100%" role="img" aria-label="Daily points, last 30 days">`;
+  for(const g of [400, 800]) chart += `<line x1="${X0}" x2="${W}" y1="${H - g/800*H}" y2="${H - g/800*H}" stroke="var(--grid)"/><text x="0" y="${H - g/800*H + 3}" font-size="9" fill="var(--faint)">${g}</text>`;
+  span.forEach((d,i) => {
+    const r = byDay[d], x = X0 + i * bw + 1.5;
+    if(r && r.top){ const h = r.total / 800 * H; chart += `<rect x="${x.toFixed(1)}" y="${(H-h).toFixed(1)}" width="${(bw-3).toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="${r.top.color}"><title>${d}: ${r.total} (${r.top.name})</title></rect>`; }
+    else if(r) chart += `<rect x="${x.toFixed(1)}" y="${H-3}" width="${(bw-3).toFixed(1)}" height="3" rx="1.5" fill="var(--idle)"><title>${d}: started, not finished</title></rect>`;
+  });
+  chart += `<text x="${X0}" y="${H+14}" font-size="9" fill="var(--faint)">${span[0].slice(5)}</text><text x="${W}" y="${H+14}" text-anchor="end" font-size="9" fill="var(--faint)">Today</text></svg>`;
+  // Per-game averages across every day played.
+  const games = GAMES.map(g => {
+    const rs = days.map(d => (players[uid].results[d.day] || {})[g.id]).filter(Boolean);
+    if(!rs.length) return null;
+    const best = rs.reduce((a,b) => better(g.id, b.score, a.score) ? b : a);
+    return {g, n: rs.length, avg: Math.round(rs.reduce((a,b) => a + pctMax(g.id, b.score), 0) / rs.length), best};
+  }).filter(Boolean).sort((a,b) => (levelOf(a.g.id) ? LEVELS.indexOf(levelOf(a.g.id)) : 9) - (levelOf(b.g.id) ? LEVELS.indexOf(levelOf(b.g.id)) : 9));
+  return backBar('History & stats') + `
+  <div class="card"><div class="row" style="flex-wrap:wrap;gap:8px">
+    ${tile(count('gold'), 'Gold days', L.gold.color)}${tile(count('silver'), 'Silver days', L.silver.color)}${tile(count('bronze'), 'Bronze days', L.bronze.color)}
+    ${tile(days.length, 'days played')}${tile(st.cur, 'day streak')}${tile(st.best, 'best streak')}
+  </div><div class="hint">A streak counts days you finished at least Bronze.</div></div>
+  <div class="card"><h2>Last 30 days</h2>${chart}
+    <div class="legend">${LEVELS.map(l => `<span class="cat"><i style="background:${l.color};border-radius:3px"></i>${l.name}</span>`).join('')}<span class="cat"><i style="background:var(--idle);border-radius:3px"></i>Unfinished</span></div>
+    <div class="hint">Bar height = points at the highest level finished that day (out of 800).</div></div>
+  <div class="card"><h2>By game</h2>${games.length ? `<table class="cattable"><tr><td class="sub">Game</td><td class="sub" style="text-align:center">Played</td><td class="sub" style="text-align:center">Best</td><td class="sub" style="font-weight:400">Avg</td></tr>` + games.map(x => {
+      const lv = levelOf(x.g.id);
+      return `<tr><td><span class="name" style="color:${lv ? lv.color : 'var(--muted)'}">${esc(x.g.name)}</span></td><td style="text-align:center;font-weight:400">${x.n}</td><td style="text-align:center;font-weight:400" class="sub">${esc(x.best.display)}</td><td>${x.avg}%</td></tr>`;
+    }).join('') + `</table><div class="hint">Avg = average % of the best possible score.</div>` : `<div class="empty">No games logged yet.</div>`}</div>
+  <div class="card"><h2>History</h2>${days.length ? `<div class="list">` + days.slice(0, 14).map(d => `
+      <div class="li"><div class="grow"><div class="name">${new Date(d.day+'T12:00:00').toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'})}</div><div style="margin-top:3px">${pie(d.row)}</div></div>
+        <div style="text-align:right">${d.row.top ? levelBadge(d.row.top) + `<div class="score" style="margin-top:2px">${d.row.total}<span class="sub"> / ${d.row.top.n*100}</span></div>` : `<div class="sub">${d.row.played} game${d.row.played===1?'':'s'}, unfinished</div>`}</div></div>`).join('') + `</div>` : `<div class="empty">Nothing logged yet.</div>`}</div>`;
+}
+
+/* ---------- Tabs & render ---------- */
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => switchTab(b.dataset.tab));
+function switchTab(t){
+  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
+  ['today','games','week'].forEach(x => $('tab-'+x).hidden = x !== t);
+  render();
+}
+/* ---------- Sample group (local preview only; nothing is saved) ---------- */
+let demo = false, live = null;
+const DEMO_GROUP = 'Trivia Night Crew';
+const DEMO_PLAYERS = [
+  // skill: typical quality 0-1. today: level reached today (or games played if partial). lv: chance of finishing each level on other days.
+  {id:'d-you',    name:'You',    skill:.72, today:{level:'silver', extra:['krillion','immaculate']}, lv:[1,.9,.55]},
+  {id:'d-ana',    name:'Ana',    skill:.84, today:{level:'gold'},   lv:[1,.95,.85]},
+  {id:'d-marcus', name:'Marcus', skill:.76, today:{level:'gold'},   lv:[1,.85,.6]},
+  {id:'d-priya',  name:'Priya',  skill:.9,  today:{level:'silver'}, lv:[.95,.7,.3]},
+  {id:'d-dev',    name:'Dev',    skill:.62, today:{level:'silver', extra:['bandle']}, lv:[1,.7,.4]},
+  {id:'d-sam',    name:'Sam',    skill:.68, today:{level:'bronze', extra:['catfishing']}, lv:[.95,.35,.1]},
+  {id:'d-lena',   name:'Lena',   skill:.52, today:{level:'bronze'}, lv:[.9,.5,.2]},
+  {id:'d-tom',    name:'Tom',    skill:.45, today:{partial:['wordle','maptap']}, lv:[.8,.2,.05]},
+];
+function seeded(seed){ return () => { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; }; }
+function fakeResult(gid, q){
+  const tries = (cuts, fail) => { for(let i = 0; i < cuts.length; i++) if(q > cuts[i]) return i + 1; return fail; };
+  switch(gid){
+    case 'wordle': case 'worldle': { const g = tries([.9,.75,.55,.38,.22], 7); return {score:g, display:(g===7?'X':g)+'/6'}; }
+    case 'maptap': { const v = Math.round(600 + q*390); return {score:v, display:v+' / 1000'}; }
+    case 'framed': case 'bandle': { const g = tries([.88,.72,.58,.46,.35,.25], 7); return {score:g, display: g===7 ? 'Missed' : g+(g===1?' try':' tries')}; }
+    case 'catfishing': { const v = Math.round(q*20)/2; return {score:v, display:v+'/10'}; }
+    case 'timeguessr': { const v = Math.round(15000 + q*34000); return {score:v, display:v.toLocaleString()+'/50,000'}; }
+    case 'krillion': { const v = Math.round(150 + q*500); return {score:v, display:v+' points'}; }
+    case 'immaculate': { const v = Math.max(0, Math.min(9, Math.round(q*9))); return {score:v, display:v+'/9'}; }
+  }
+}
+function makeDemo(){
+  const out = {}, t = today();
+  DEMO_PLAYERS.forEach((pl, pi) => {
+    const r = seeded(pi * 7919 + 17), results = {};
+    for(let d = 0; d < 30; d++){
+      const day = addDays(t, -d);
+      let games;
+      if(d === 0){
+        const T = pl.today;
+        games = T.partial ? T.partial.slice() : [...levelSpokes(T.level).map(c => c.game), ...(T.extra || [])];
+      } else {
+        if(r() > .88) continue;  // took the day off
+        const n = r() < pl.lv[2] ? 8 : r() < pl.lv[1] ? 5 : r() < pl.lv[0] ? 3 : 1 + Math.floor(r()*2);
+        games = SPOKES.slice(0, n).map(c => c.game);
+        if(r() < .3) games.push('worldle');
+      }
+      results[day] = {};
+      for(const g of games){
+        const q = Math.max(0, Math.min(1, pl.skill + (r() - .5) * .45));
+        results[day][g] = fakeResult(g, q);
+      }
+    }
+    out[pl.id] = {name: pl.name, results};
+  });
+  return out;
+}
+function toggleDemo(){
+  if(!demo){
+    live = {players, uid, ready}; players = makeDemo(); ready = false; demo = true; uid = 'd-you';
+    players['d-you'].name = (live.players[live.uid] && live.players[live.uid].name) || load('name') || 'Geoff';
+  }
+  else { players = live.players; uid = live.uid; ready = live.ready; demo = false; }
+  viewing = null; chartLevel = null; render();
+}
+function renderDemoBar(){
+  const bar = $('demoBar');
+  bar.style.background = demo ? 'var(--notice)' : '';
+  bar.style.borderColor = demo ? 'var(--notice-line)' : '';
+  bar.innerHTML = demo
+    ? `<div class="grow"><div class="name">${esc(DEMO_GROUP)} <span class="badge beta">sample</span></div><div class="sub">${DEMO_PLAYERS.length} made-up members · nothing here is saved</div></div><button class="btn ghost" id="demoBtn">Back to live board</button>`
+    : `<div class="grow sub">Want to see how a busy group looks?</div><button class="btn ghost" id="demoBtn">Preview a sample group</button>`;
+  $('demoBtn').onclick = toggleDemo;
+}
+
+function renderHeader(){
+  renderDemoBar();
+  $('dateLine').textContent = prettyDay(today());
+  setConnText();
+  $('nameChip').style.cssText = page === 'profile' ? 'background:var(--accent);color:#fff' : '';
+  $('statsBtn').style.cssText = page === 'stats' ? 'background:var(--accent);color:#fff' : '';
+  $('nameBox').hidden = !(ready && !(me() && me().name) && !load('name'));
+}
+const levelPills = (row, sel) => `<div class="row" style="gap:6px;flex-wrap:wrap;margin:8px 0 2px">` + row.levels.map(l =>
+  `<button data-chart="${l.id}" aria-pressed="${l.id===sel}" style="flex:1;min-width:90px;text-align:left;font-family:inherit;cursor:pointer;border-radius:10px;padding:6px 9px;${l.done ? 'background:'+l.color+';color:#fff;border:1.5px solid '+l.color : 'background:var(--surface);border:1.5px solid '+l.color+';color:'+l.color};${l.id===sel ? 'box-shadow:0 0 0 3px var(--card),0 0 0 5px '+l.color+';' : 'opacity:.75;'}">
+    <div style="font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.4px">${l.name}${l.done ? ' ✓' : ''}</div>
+    <div style="font-weight:700;font-size:15px">${l.done ? l.total + '<span style="font-weight:500;font-size:12px"> / ' + l.n*100 + '</span>' : l.played + ' of ' + l.n}</div></button>`).join('') + `</div>`;
+
+function render(){
+  renderHeader();
+  showPage(!!page);
+  if(page){
+    $('page').innerHTML = page === 'profile' ? renderProfile() : renderStats();
+    $('pageBack').onclick = () => openPage(page);
+    wireTheme();
+    if($('profSave')) $('profSave').onclick = async () => {
+      const n = $('profName').value.trim().slice(0,24); if(!n) return;
+      store('name', n);
+      if(ready){ try{ const ref = db.doc('players/'+uid); if(me()) await ref.update({name:n}); else await ref.set({name:n, results:{}}); }catch(e){} }
+      render();
+    };
+    return;
+  }
+  const t = today(), {rows, partial, all, byGame} = dayData(t);
+
+  /* Today */
+  if(!viewing || !all.find(r => r.id === viewing)) viewing = all.find(r => r.id === uid) ? uid : (rows[0] || all[0] || {}).id;
+  const vr = all.find(r => r.id === viewing);
+  // The selected level drives both the chart and the standings. Default: the viewer's highest level finished.
+  const lid = chartLevel || (vr && vr.top ? vr.top.id : 'bronze'), Lv = L[lid], lmax = Lv.n * 100;
+  let h = `<div class="card">
+    <div class="row between"><h2 style="margin:0">${vr ? (vr.id === uid ? 'Your day' : esc(nameOf(vr.id)) + "'s day") : 'Today'}</h2>${vr && vr.id !== uid && all.find(r => r.id === uid) ? '<button class="chip" id="backToMe">← Back to you</button>' : ''}</div>`;
+  if(vr){
+    h += levelPills(vr, lid);
+    h += spider(vr, lid);
+    h += `<div class="hint" style="text-align:center;margin-top:0">Tap a level to compare everyone on it. Game names are colored by the level they belong to${vr.levels.find(l => l.id === lid).done ? '' : '; dashed until the level is finished'}.</div>`;
+  } else {
+    h += spider(null, 'bronze') + `<div class="empty">No results yet today. Play a game and paste your result above.</div>`;
+  }
+  h += `</div>`;
+
+  // Standings for the selected level: finished first by points, then those still playing (faded).
+  const lvRows = all.map(r => ({r, lv: r.levels.find(l => l.id === lid)})).filter(x => x.lv.played > 0)
+    .sort((a,b) => (b.lv.done - a.lv.done) || (b.lv.total - a.lv.total));
+  const lsp = levelSpokes(lid);
+  let rk = 0;
+  h += `<div class="card"><div class="row between"><h2 style="margin:0;color:${Lv.color}">${Lv.name} standings</h2><span class="sub">${Lv.n} games · out of ${lmax}</span></div>`;
+  h += lvRows.length ? `<div class="list" style="margin-top:6px">` + lvRows.map(({r, lv}) => {
+      const done = lv.done, n = done ? ++rk : null;
+      return `<div class="li click ${r.id===uid?'me':''} ${r.id===viewing?'sel':''}" data-view="${esc(r.id)}" style="${done ? '' : 'opacity:.45'}">
+        <div class="rank ${n===1?'r1':''}">${n || '–'}</div>
+        <div class="grow"><div class="name">${esc(nameOf(r.id))}</div><div style="margin-top:3px">${pie(r, lsp)}</div></div>
+        <div style="text-align:right"><div class="score">${lv.total}<span class="sub"> / ${lmax}</span></div><div class="sub">${done ? (r.top && r.top.id !== lid ? 'Best: ' + r.top.name : 'Finished') : lv.played + ' of ' + Lv.n + ' played'}</div></div>
+      </div>`; }).join('') + `</div>`
+    : `<div class="empty">Nobody has played a ${Lv.name} game today.</div>`;
+  h += `<div class="hint">Ranked by points on the ${Lv.name} games. Each game scores your rank among everyone who played it today (100 = best); with fewer than ${MIN_FOR_PCT} players it uses % of the best possible score. Faded players haven't finished all ${Lv.n}.</div></div>`;
+  $('tab-today').innerHTML = h;
+  document.querySelectorAll('[data-view]').forEach(el => el.onclick = () => { chartLevel = lid; viewing = el.dataset.view; render(); });
+  if($('backToMe')) $('backToMe').onclick = () => { viewing = uid; render(); };
+
+  /* Games: grouped by tier (Bronze, Silver, Gold, then bonus), category as plain text */
+  const mine = (me() && me().results && me().results[t]) || {};
+  const groups = LEVELS.map((l, i) => ({title: l.name + (i ? ' adds' : ''), color: l.color, games: SPOKES.slice(i ? LEVELS[i-1].n : 0, l.n).map(c => G[c.game]), level: l}))
+    .concat([{title: "Bonus · don't count", color: 'var(--faint)', games: GAMES.filter(g => !levelOf(g.id))}]);
+  let gh = `<div class="card">`;
+  for(const grp of groups){
+    const l = grp.level, done = l ? levelSpokes(l.id).filter(c => mine[c.game]).length : 0;
+    gh += `<div class="catblock" style="border-color:${grp.color}"><div class="row between"><h3 style="color:${grp.color}">${esc(grp.title)}</h3>${l ? `<span class="sub">${done === l.n ? l.name + ' complete ✓' : done + ' of ' + l.n + ' for ' + l.name}</span>` : ''}</div>` + grp.games.map(g => {
+      const e = mine[g.id];
+      return `<div class="game"><div class="dot ${e?'':'todo'}" style="background:${grp.color};color:${e?'#fff':grp.color}">${e?'✓':esc(g.name[0])}</div>
+        <div class="grow"><div class="name">${esc(g.name)} ${g.verified?'':'<span class="badge beta">beta</span>'}</div>
+          <div class="sub">${esc(C[g.cat].name)}${e ? ' · ' + esc(e.display) : ''}</div></div>
+        <a class="play ${e?'done':''}" href="${g.url}" target="_blank" rel="noopener" data-game="${g.id}">${e?'Open':'Play'} ↗</a></div>`;
+    }).join('') + `</div>`;
+  }
+  gh += `<div class="hint">Games open in a new tab. When you finish, tap the game's Share button and paste here.</div></div>`;
+  $('tab-games').innerHTML = gh;
+  document.querySelectorAll('a.play, a.spoke').forEach(a => a.onclick = () => { store('launch:'+a.dataset.game+':'+today(), new Date().toISOString()); });
+
+  /* Week: the same level as Today, averaged over the days each player finished it */
+  const days = [...Array(7)].map((_,i) => addDays(t,-i));
+  const agg = {};
+  for(const d of days){ for(const r of dayData(d).all){ const lv = r.levels.find(x => x.id === lid); if(lv.done) (agg[r.id] ||= []).push(lv.total); } }
+  const wk = Object.entries(agg).map(([id,a]) => ({id, days:a.length, avg:Math.round(a.reduce((x,y)=>x+y,0)/a.length)})).sort((a,b) => b.avg - a.avg || b.days - a.days);
+  const weekSeg = `<div class="seg" role="group" aria-label="Level">` + LEVELS.map(l => `<button data-chart="${l.id}" class="${l.id===lid?'on':''}" style="${l.id===lid?'color:'+l.color:''}">${l.name}</button>`).join('') + `</div>`;
+  $('tab-week').innerHTML = `<div class="card"><div class="row between" style="flex-wrap:wrap;gap:8px"><h2 style="margin:0;color:${Lv.color}">${Lv.name}, last 7 days</h2>${weekSeg}</div>` + (wk.length ? `<div class="list" style="margin-top:6px">` + wk.map((r,i) => `
+      <div class="li ${r.id===uid?'me':''}"><div class="rank ${i===0?'r1':''}">${i+1}</div>
+        <div class="grow"><div class="name">${esc(nameOf(r.id))}</div><div class="sub">finished ${Lv.name} ${r.days} day${r.days>1?'s':''}</div></div>
+        <div style="text-align:right"><div class="score">${r.avg}<span class="sub"> / ${lmax}</span></div><div class="sub">avg per day</div></div></div>`).join('') + `</div>
+      <div class="hint">Average points on the days each player finished ${Lv.name}, so skipping a day doesn't count against you. Same level as the Today tab.</div>` : `<div class="empty">Nobody finished ${Lv.name} this week yet.</div>`) + `</div>`;
+
+  document.querySelectorAll('[data-chart]').forEach(el => el.onclick = () => { chartLevel = el.dataset.chart; render(); });
+  const collapsed = Object.keys(mine).length > 0 && !pasteOpen && !box.value && $('confirm').hidden;
+  $('pasteBody').hidden = collapsed; $('pasteOpen').hidden = !collapsed;
+  $('pasteOpen').onclick = () => { pasteOpen = true; render(); box.focus(); };
+
+  if(!$('confirm').hidden && pending) showConfirm(pending, $('confirm')._raw);
+}
+
+/* ---------- Connect to the shared board ---------- */
+let connState = ['Connecting…', false];
+function setConn(text, warn){ connState = [text, warn]; setConnText(); }
+function setConnText(){ const c = $('conn'), [text, warn] = demo ? ['Sample group', false] : connState; c.textContent = text; c.className = 'status' + (warn ? ' warn' : ''); }
+async function resolveNames(){
+  if(!user || !user.profiles) return;
+  try{ const ids = Object.keys(players); if(ids.length) profiles = await user.profiles(ids) || {}; }catch(e){}
+}
+render();
+(async () => {
+  if(!window.claude || !window.claude.use){ setConn('Not connected', false); return; }
+  try{ user = await window.claude.use('user'); }catch(e){}
+  try{ db = await window.claude.use('db'); }catch(e){}
+  if(user){ try{ uid = await user.id(); }catch(e){} }
+  if(!db || !uid){ setConn('Sign in to save', true); render(); return; }
+  const timer = setTimeout(() => setConn('Still connecting…', true), 10000);
+  db.collection('players').onSnapshot(async snap => {
+    const fresh = {}; snap.docs.forEach(d => { if(d.exists) fresh[d.id] = d.data(); });
+    if(demo) live.players = fresh; else players = fresh;
+    if(!snap.metadata.fromCache){ clearTimeout(timer); if(demo) live.ready = true; else ready = true; const n = Object.keys(fresh).length; setConn(n + ' player' + (n===1?'':'s')); }
+    await resolveNames(); render();
+  }, () => { clearTimeout(timer); setConn('Board unavailable', true); });
+})();
+document.addEventListener('visibilitychange', () => { if(!document.hidden) render(); });
+</script>
+</body>
+</html>
