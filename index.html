@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>It's Trivial</title>
+<title>trivialRANKS</title>
 <script>
   // Apply the saved theme before the page draws, so there's no flash.
   (function(){ var p; try{ p = JSON.parse(localStorage.getItem('theme')); }catch(e){}
@@ -100,7 +100,7 @@
 <div class="wrap">
   <header>
     <div>
-      <h1>It's <span>Trivial</span></h1>
+      <h1>trivial<span>RANKS</span></h1>
       <div class="date" id="dateLine"></div>
     </div>
     <div class="row" style="gap:6px">
@@ -372,9 +372,24 @@ function chartScore(gid, e){
   if(gid === 'maptap' || gid === 'timeguessr' || gid === 'krillion') return Number(e.score).toLocaleString();
   return e.display;
 }
-// Draws one level: Bronze as a triangle, Silver a pentagon, Gold an octagon. Games are spaced evenly.
-function spider(row, lid){
-  const Lv = L[lid], sp = levelSpokes(lid).slice().sort((a,b) => a.pos - b.pos), n = sp.length, R = 100;
+// A game goes on the chart only when at least this many people played it today.
+const MIN_FOR_CHART = 2, MIN_SPOKES = 3;
+const chartSpokes = (lid, byGame) => levelSpokes(lid).filter(c => (byGame[c.game] || []).length >= MIN_FOR_CHART);
+// Plain list of a level's games that aren't on the chart: the viewer's result, or "not played".
+function scoreList(row, list, byGame, title){
+  if(!list.length) return '';
+  return `<div class="sub" style="margin-top:12px;font-weight:600">${esc(title)}</div><div class="list" style="margin-top:4px">` + list.map(c => {
+    const g = G[c.game], l = levelOf(c.game), x = row && row.cats[c.id], n = (byGame[c.game] || []).length;
+    return `<div class="li"><div class="grow"><a class="name spoke" href="${g.url}" target="_blank" rel="noopener" data-game="${g.id}" style="color:${l.color}">${esc(g.name)} ↗</a>
+        <div class="sub">${n === 1 ? 'only 1 player today' : 'nobody yet today'}</div></div>
+      <div style="text-align:right">${x ? `<div class="score">${esc(x.e.display)}</div><div class="sub">${x.v} pts</div>` : '<div class="sub">not played</div>'}</div></div>`;
+  }).join('') + `</div>`;
+}
+// Draws one level from the games 2+ people played today, spaced evenly around the shape.
+// Fewer than 3 such games can't make a shape, so no chart is drawn.
+function spider(row, lid, byGame){
+  const Lv = L[lid], sp = chartSpokes(lid, byGame).sort((a,b) => a.pos - b.pos), n = sp.length, R = 100;
+  if(n < MIN_SPOKES) return '';
   const ang = i => -Math.PI/2 + i * 2*Math.PI/n;
   const pt = (i, v) => [Math.cos(ang(i)) * R * v/100, Math.sin(ang(i)) * R * v/100];
   const f = x => x.toFixed(1);
@@ -711,10 +726,13 @@ function render(){
     <div class="row between"><h2 style="margin:0">${vr ? (vr.id === uid ? 'Your day' : esc(nameOf(vr.id)) + "'s day") : 'Today'}</h2>${vr && vr.id !== uid && all.find(r => r.id === uid) ? '<button class="chip" id="backToMe">← Back to you</button>' : ''}</div>`;
   if(vr){
     h += levelPills(vr, lid);
-    h += spider(vr, lid);
-    h += `<div class="hint" style="text-align:center;margin-top:0">Tap a level to compare everyone on it. Game names are colored by the level they belong to${vr.levels.find(l => l.id === lid).done ? '' : '; dashed until the level is finished'}.</div>`;
+    const chart = spider(vr, lid, byGame), onChart = chart ? chartSpokes(lid, byGame).map(c => c.id) : [];
+    const offChart = levelSpokes(lid).filter(c => !onChart.includes(c.id));
+    h += chart;
+    if(chart) h += `<div class="hint" style="text-align:center;margin-top:0">Tap a level to compare everyone on it. The chart shows games ${MIN_FOR_CHART}+ people played today${vr.levels.find(l => l.id === lid).done ? '' : '; dashed until the level is finished'}.</div>`;
+    h += scoreList(vr, offChart, byGame, chart ? 'Not on the chart yet' : `${Lv.name} games · chart appears once ${MIN_SPOKES} games each have ${MIN_FOR_CHART}+ players`);
   } else {
-    h += spider(null, 'bronze') + `<div class="empty">No results yet today. Play a game and paste your result above.</div>`;
+    h += `<div class="empty">No results yet today. Play a game and paste your result above.</div>`;
   }
   h += `</div>`;
 

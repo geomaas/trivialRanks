@@ -1,4 +1,4 @@
-# It's Trivial
+# trivialRANKS
 
 A daily trivia leaderboard. Players paste the share text from daily games (Wordle, MapTap, Framed, Catfishing, TimeGuessr, Krillion, Immaculate Grid, Bandle), and the page parses each result, scores it, and ranks players across Bronze, Silver and Gold levels.
 
