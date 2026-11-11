@@ -709,8 +709,12 @@ function toggleDemo(){
   else { players = live.players; uid = live.uid; ready = live.ready; demo = false; }
   viewing = null; chartLevel = null; render();
 }
+// The sample-group preview is hidden; add ?sample to the address to show it again.
+const SHOW_SAMPLE = /[?&]sample\b/.test(location.search);
 function renderDemoBar(){
   const bar = $('demoBar');
+  bar.style.display = SHOW_SAMPLE || demo ? 'flex' : 'none';
+  if(!SHOW_SAMPLE && !demo) return;
   bar.style.background = demo ? 'var(--notice)' : '';
   bar.style.borderColor = demo ? 'var(--notice-line)' : '';
   bar.innerHTML = demo

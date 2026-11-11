@@ -32,6 +32,15 @@ One-time setup:
 
 Every push to `main` then deploys.
 
+**Build it locally against Supabase** (needs Node):
+
+```
+cp .env.example .env.local     # then paste your Supabase URL and anon/publishable key
+node build.mjs --serve         # builds dist/ and previews at http://localhost:3000
+```
+
+To sign in on the preview, add `http://localhost:3000/**` to Supabase → Authentication → URL Configuration → Redirect URLs. `.env.local` is git-ignored.
+
 ### On claude.ai
 
 **The shared board needs claude.ai.** The page was built as a claude.ai artifact, and it uses that platform's built-in database and sign-in (`window.claude.use('db')` and `window.claude.use('user')`) to share players and results. Opened as a plain file or from other hosting (without the local server above), it shows "Not connected": results stay on that device, and there is no shared leaderboard.

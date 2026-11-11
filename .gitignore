@@ -8,3 +8,4 @@ local/*.db-shm
 __pycache__/
 dist/
 .vercel/
+!.env.example
