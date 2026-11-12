@@ -93,6 +93,19 @@
   .cattable{width:100%;border-collapse:collapse;margin-top:6px;font-size:13.5px}
   .cattable td{padding:5px 0;border-top:1px solid var(--line)}
   .cattable td:last-child{text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
+  .stack{height:8px;background:var(--chip);border-radius:99px;overflow:hidden;margin-top:6px}
+  .stack>div{display:flex;height:100%}
+  .stack i{display:block;height:100%;min-width:2px;box-shadow:inset -1.5px 0 var(--card)}
+  .stack i:last-child{box-shadow:none}
+  .track{position:relative;height:20px;margin:10px 8px 2px}
+  .track::before{content:"";position:absolute;left:-8px;right:-8px;top:9px;height:2px;border-radius:2px;background:var(--grid)}
+  .track b{position:absolute;top:10px;width:9px;height:9px;border-radius:50%;background:var(--faint);opacity:.6;transform:translate(-50%,-50%)}
+  .track b.big{width:16px;height:16px;opacity:1;border:2.5px solid var(--card);box-shadow:0 0 0 1px var(--line);z-index:1}
+  .track em{position:absolute;top:-7px;transform:translateX(-50%);font:700 9.5px/1 Inter,sans-serif;font-style:normal;color:var(--muted)}
+  .boards{display:flex;gap:6px;overflow-x:auto;margin:0 0 10px;padding-bottom:2px;scrollbar-width:none}
+  .boards .chip{flex:none;background:var(--chip);color:var(--muted);padding:6px 12px}
+  .boards .chip.on{background:var(--accent);color:#fff}
+  .boards .chip.add{background:transparent;border:1px dashed var(--line)}
   [hidden]{display:none!important}
 </style>
 </head>
@@ -118,6 +131,8 @@
     <div class="hint">Shown to everyone on this board.</div>
   </div>
 
+  <div class="card confirm" id="joinCard" hidden></div>
+
   <div class="card" id="pasteCard">
     <div class="row between" style="margin-bottom:8px">
       <h2 style="margin:0">Log a result</h2>
@@ -133,6 +148,8 @@
   <div class="card confirm" id="confirm" hidden></div>
 
   <div class="card" id="demoBar" style="padding:10px 14px;display:flex;align-items:center;gap:10px"></div>
+
+  <div class="boards" id="boardBar" hidden></div>
 
   <nav>
     <button data-tab="today" class="on">Today</button>
@@ -180,29 +197,12 @@ const GAMES = [
   {id:'krillion',   name:'Krillion',        cat:'gen',    url:'https://krillion.io',            higher:true,  max:700,   keys:['krillion']},
 ];
 const G = Object.fromEntries(GAMES.map(g => [g.id, g]));
-// Counting games in level order. Bronze = first 3, Silver = first 5, Gold = all 8.
-const SPOKES = [
-  // pos = position on the octagon (0 = top, clockwise). Bronze sits on a triangle,
-  // Bronze + Silver on a pentagon, all eight on the octagon.
-  {id:'wordle',     cat:'words',   pos:0},
-  {id:'maptap',     cat:'places',  pos:3},
-  {id:'framed',     cat:'screen',  pos:5},
-  {id:'catfishing', cat:'gen',     pos:2},
-  {id:'timeguessr', cat:'history', pos:6},
-  {id:'krillion',   cat:'gen',     pos:1},
-  {id:'immaculate', cat:'sports',  pos:4},
-  {id:'bandle',     cat:'screen',  pos:7},
-].map(x => ({...x, game:x.id, color:C[x.cat].color, name:C[x.cat].name, short:C[x.cat].short}));
-const LEVELS = [
-  {id:'bronze', name:'Bronze', n:3, color:'#a8693b'},
-  {id:'silver', name:'Silver', n:5, color:'#7d868f'},
-  {id:'gold',   name:'Gold',   n:8, color:'#c99a2e'},
-];
-const L = Object.fromEntries(LEVELS.map(l => [l.id, l]));
-const levelSpokes = lid => SPOKES.slice(0, L[lid].n);
-// The level a counting game first appears in (Bronze, Silver or Gold).
-function levelOf(gid){ const i = SPOKES.findIndex(x => x.game === gid); return i < 0 ? null : LEVELS.find(l => i < l.n); }
-const levelBadge = l => `<span class="badge" style="background:${l.color};color:#fff">${esc(l.name)}</span>`;
+// Every game counts toward the day's total. A game takes its category's color.
+const gameColor = gid => C[G[gid].cat].color;
+const catBadge = gid => `<span class="badge" style="background:${gameColor(gid)};color:#fff">${esc(C[G[gid].cat].name)}</span>`;
+const ord = n => { const s = ['th','st','nd','rd'], v = n % 100; return n + (s[(v-20)%10] || s[v] || s[0]); };
+// Shared places for a sorted list: equal values share a place (1, 2, 2, 4).
+function placesOf(list, val){ const out = []; list.forEach((x, i) => out.push(i && val(list[i-1]) === val(x) ? out[i-1] : i + 1)); return out; }
 
 /* ---------- Dates ---------- */
 const pad = n => String(n).padStart(2,'0');
@@ -212,7 +212,6 @@ function addDays(iso, n){ const d = new Date(iso+'T12:00:00Z'); d.setUTCDate(d.g
 function daysBetween(a, b){ return Math.round((Date.parse(b+'T12:00:00Z') - Date.parse(a+'T12:00:00Z'))/864e5); }
 const MONTHS = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
 function prettyDay(iso){ const d = new Date(iso+'T12:00:00'); return d.toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'}); }
-const isOfficial = gid => SPOKES.some(x => x.game === gid);
 
 /* ---------- Parsers ---------- */
 function parseWordle(t){
@@ -321,43 +320,39 @@ function points(gid, score, byGame){
   const list = (byGame[gid] || []).map(x => x.e.score);
   return list.length >= MIN_FOR_PCT ? pct(list, gid, score) : pctMax(gid, score);
 }
-// Scores every player's counting games for a day and finds the highest level each one finished.
+// Scores every player's games for a day. Each game is worth up to 100 points and the day's
+// total is their sum, so playing more games and playing them well both move you up.
 function dayData(day){
-  const byGame = {};
-  for(const [id,p] of Object.entries(players)){
+  const pool = boardPlayers(), byGame = {};
+  for(const [id,p] of Object.entries(pool)){
     const r = (p.results||{})[day] || {};
-    for(const [g,e] of Object.entries(r)){ if(G[g]) (byGame[g] ||= []).push({id, e}); }
+    for(const [g,e] of Object.entries(r)){ if(G[g] && e) (byGame[g] ||= []).push({id, e}); }
   }
-  const all = [];
-  for(const id of Object.keys(players)){
-    const r = (players[id].results||{})[day] || {};
-    const cats = {}; let bonus = 0, played = 0;
-    for(const c of SPOKES){
-      const e = r[c.game];
-      if(e){
-        const v = points(c.game, e.score, byGame);
-        cats[c.id] = {v, gid:c.game, e}; played++;
-      } else cats[c.id] = null;
+  // Place within each game, best first.
+  for(const [g, list] of Object.entries(byGame)){
+    list.sort((a,b) => better(g, a.e.score, b.e.score) ? -1 : better(g, b.e.score, a.e.score) ? 1 : 0);
+    placesOf(list, x => x.e.score).forEach((p, i) => list[i].place = p);
+  }
+  for(const [g, list] of Object.entries(byGame)) list.forEach(x => x.v = points(g, x.e.score, byGame));
+  const rows = [];
+  for(const id of Object.keys(pool)){
+    const r = (pool[id].results||{})[day] || {};
+    const games = {}; let total = 0;
+    for(const g of GAMES){
+      const e = r[g.id]; if(!e) continue;
+      const list = byGame[g.id], mineHere = list.find(x => x.id === id), v = points(g.id, e.score, byGame);
+      games[g.id] = {v, e, place: mineHere.place, of: list.length}; total += v;
     }
-    for(const g of Object.keys(r)) if(G[g] && !isOfficial(g)) bonus++;
-    if(!played && !bonus) continue;
-    const levels = LEVELS.map(l => {
-      const sp = levelSpokes(l.id), n = sp.filter(c => cats[c.id]).length;
-      return {...l, played:n, done:n === l.n, total: sp.reduce((a,c) => a + (cats[c.id] ? cats[c.id].v : 0), 0)};
-    });
-    const top = levels.filter(l => l.done).at(-1) || null;
-    all.push({id, cats, played, bonus, levels, top, total: top ? top.total : 0});
+    const played = Object.keys(games).length;
+    if(played) rows.push({id, games, played, total, avg: Math.round(total / played)});
   }
-  // Ranked: highest level finished first, then points at that level.
-  const rank = r => r.top ? LEVELS.findIndex(l => l.id === r.top.id) : -1;
-  const rows = all.filter(r => r.top).sort((a,b) => rank(b) - rank(a) || b.total - a.total);
-  const partial = all.filter(r => !r.top).sort((a,b) => b.played - a.played);
-  return {rows, partial, all, byGame};
+  rows.sort((a,b) => b.total - a.total || b.avg - a.avg);
+  return {rows, all: rows, byGame, places: placesOf(rows, r => r.total)};
 }
 
 /* ---------- State ---------- */
 let db = null, user = null, uid = null, players = {}, profiles = {}, ready = false, saving = false;
-let pending = null, viewing = null, chartLevel = null, page = null, pasteOpen = false;
+let pending = null, viewing = null, page = null, pasteOpen = false;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function store(k, v){ try{ v===undefined ? localStorage.removeItem(k) : localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
@@ -366,88 +361,72 @@ const me = () => players[uid];
 function nameOf(id){ return (players[id] && players[id].name) || (profiles[id] && profiles[id].name) || 'Player'; }
 const catTag = c => `<span class="cat"><i style="background:${C[c].color}"></i>${esc(C[c].name)}</span>`;
 
-/* ---------- Spider chart ---------- */
-// A short form of a result for chart labels: the long point totals drop their "out of".
-function chartScore(gid, e){
-  if(gid === 'maptap' || gid === 'timeguessr' || gid === 'krillion') return Number(e.score).toLocaleString();
-  return e.display;
+/* ---------- Score visuals ---------- */
+// Standings bar: as long as the player's total compared with the day's leader, split into one
+// segment per game (category colors, always in the same game order).
+function stack(row, max){
+  const segs = GAMES.filter(g => row.games[g.id] && row.games[g.id].v > 0).map(g => { const x = row.games[g.id];
+    return `<i style="flex:${x.v};background:${gameColor(g.id)}" title="${esc(g.name)}: ${esc(x.e.display)} · ${x.v} pts"></i>`; }).join('');
+  return `<div class="stack" aria-hidden="true"><div style="width:${(row.total / Math.max(1, max) * 100).toFixed(1)}%">${segs}</div></div>`;
 }
-// A game goes on the chart only when at least this many people played it today.
-const MIN_FOR_CHART = 2, MIN_SPOKES = 3;
-const chartSpokes = (lid, byGame) => levelSpokes(lid).filter(c => (byGame[c.game] || []).length >= MIN_FOR_CHART);
-// Plain list of a level's games that aren't on the chart: the viewer's result, or "not played".
-function scoreList(row, list, byGame, title){
-  if(!list.length) return '';
-  return `<div class="sub" style="margin-top:12px;font-weight:600">${esc(title)}</div><div class="list" style="margin-top:4px">` + list.map(c => {
-    const g = G[c.game], l = levelOf(c.game), x = row && row.cats[c.id], n = (byGame[c.game] || []).length;
-    return `<div class="li"><div class="grow"><a class="name spoke" href="${g.url}" target="_blank" rel="noopener" data-game="${g.id}" style="color:${l.color}">${esc(g.name)} ↗</a>
-        <div class="sub">${n === 1 ? 'only 1 player today' : 'nobody yet today'}</div></div>
-      <div style="text-align:right">${x ? `<div class="score">${esc(x.e.display)}</div><div class="sub">${x.v} pts</div>` : '<div class="sub">not played</div>'}</div></div>`;
+// Category key for the bars: just the categories someone played today.
+function stackLegend(rows){
+  const cats = CATS.filter(c => rows.some(r => GAMES.some(g => g.cat === c.id && r.games[g.id])));
+  return cats.length ? `<div class="legend">${cats.map(c => catTag(c.id)).join('')}</div>` : '';
+}
+// One game as a 0-100 track with a dot for everyone who played it; the viewed player's dot is big.
+// Players with the same points share one dot, with a count above it.
+function strip(gid, row, byGame){
+  const list = byGame[gid] || [], g = G[gid], spots = {};
+  for(const x of list) (spots[x.v] ||= []).push(x);
+  const dots = Object.entries(spots).map(([v, xs]) => {
+    const big = xs.some(x => x.id === row.id), label = xs.map(x => `${nameOf(x.id)}: ${x.e.display}`).join(', ');
+    return `<b class="${big ? 'big' : ''}" style="left:${v}%;${big ? 'background:' + gameColor(gid) : ''}" title="${esc(label)} · ${v} pts"></b>`
+      + (xs.length > 1 ? `<em style="left:${v}%">${xs.length}</em>` : '');
+  }).join('');
+  return `<div class="track" role="img" aria-label="${esc(g.name)}: ${row.games[gid].v} of 100 points, ${list.length} player${list.length===1?'':'s'}">${dots}</div>`;
+}
+// One dot per category: filled when the player played a game in it that day.
+function dots(row){
+  return `<span style="display:inline-flex;gap:3px;flex:none">` + CATS.map(c => {
+    const n = GAMES.filter(g => g.cat === c.id && row.games[g.id]).length;
+    return `<i title="${esc(c.name)}: ${n} played" style="width:8px;height:8px;border-radius:50%;display:inline-block;${n ? 'background:'+c.color : 'border:1.5px solid '+c.color+';opacity:.45'}"></i>`;
+  }).join('') + `</span>`;
+}
+// "Ana, Marcus +2"
+function namesOf(ids, max = 2){
+  const ns = ids.map(id => id === uid ? 'you' : nameOf(id));
+  return ns.slice(0, max).join(', ') + (ns.length > max ? ` +${ns.length - max}` : '');
+}
+// The games one player logged that day, in game order: result, points, and where they sit among everyone who played it.
+function dayList(row, byGame){
+  const gs = GAMES.filter(g => row.games[g.id]);
+  return `<div class="row between sub" style="margin:10px 0 0"><span>Each dot is a player</span><span>worst ← → best</span></div>
+    <div class="list">` + gs.map(g => { const x = row.games[g.id];
+    return `<div class="li" style="display:block">
+      <div class="row between"><a class="name spoke" href="${g.url}" target="_blank" rel="noopener" data-game="${g.id}" style="color:${gameColor(g.id)};text-decoration:none">${esc(g.name)} ↗</a>
+        <div><span class="score">${esc(x.e.display)}</span><span class="sub"> · ${x.v} pts</span></div></div>
+      ${strip(g.id, row, byGame)}
+      <div class="sub">${x.of > 1 ? `${ord(x.place)} of ${x.of}` : 'only player so far'}</div></div>`;
   }).join('') + `</div>`;
-}
-// Draws one level from the games 2+ people played today, spaced evenly around the shape.
-// Fewer than 3 such games can't make a shape, so no chart is drawn.
-function spider(row, lid, byGame){
-  const Lv = L[lid], sp = chartSpokes(lid, byGame).sort((a,b) => a.pos - b.pos), n = sp.length, R = 100;
-  if(n < MIN_SPOKES) return '';
-  const ang = i => -Math.PI/2 + i * 2*Math.PI/n;
-  const pt = (i, v) => [Math.cos(ang(i)) * R * v/100, Math.sin(ang(i)) * R * v/100];
-  const f = x => x.toFixed(1);
-  const poly = val => sp.map((c,i) => pt(i, val(c)).map(f).join(',')).join(' ');
-  const done = row && row.levels.find(x => x.id === lid).done;
-  let s = `<svg viewBox="-222 -176 444 346" width="100%" style="margin-top:14px" role="img" aria-label="${Lv.name} scores">`;
-  s += `<polygon points="${poly(() => 100)}" fill="${Lv.color}" fill-opacity=".06" stroke="${Lv.color}" stroke-opacity=".6" stroke-width="1.5"/>`;
-  for(const ring of [25,50,75]) s += `<polygon points="${poly(() => ring)}" fill="none" stroke="var(--grid)" stroke-width="1"/>`;
-  sp.forEach((c,i) => {
-    const l = levelOf(c.game), g = G[c.game], [x,y] = pt(i,100);
-    s += `<line x1="0" y1="0" x2="${f(x)}" y2="${f(y)}" stroke="${l.color}" stroke-opacity=".35" stroke-width="1.25"/>`;
-    const [lx,ly0] = pt(i,124), anchor = Math.abs(lx) < 8 ? 'middle' : lx > 0 ? 'start' : 'end';
-    const ly = anchor === 'middle' && ly0 < 0 ? ly0 - 26 : ly0;  // the top label stacks upward, clear of the shape
-    const v = row && row.cats[c.id] ? row.cats[c.id].v : null;
-    s += `<a href="${g.url}" target="_blank" rel="noopener" data-game="${g.id}" class="spoke"><title>Play ${esc(g.name)} (${l.name})</title>`;
-    s += `<rect x="${f(anchor==='start'?lx-4:anchor==='end'?lx-96:lx-50)}" y="${f(ly-12)}" width="100" height="46" fill="transparent"/>`;
-    const e = row && row.cats[c.id] ? row.cats[c.id].e : null;
-    s += `<text x="${f(lx)}" y="${f(ly+2)}" text-anchor="${anchor}" font-size="12" font-weight="700" fill="${l.color}" text-decoration="underline">${esc(g.short||g.name)}${v===null?' ↗':''}</text>`;
-    s += e ? `<text x="${f(lx)}" y="${f(ly+17)}" text-anchor="${anchor}" font-size="12" font-weight="600" fill="var(--ink)">${esc(chartScore(c.game, e))}</text>
-             <text x="${f(lx)}" y="${f(ly+30)}" text-anchor="${anchor}" font-size="10.5" fill="var(--muted)">${v} pts</text>`
-           : `<text x="${f(lx)}" y="${f(ly+17)}" text-anchor="${anchor}" font-size="11" fill="var(--muted)">not played</text>`;
-    s += `</a>`;
-  });
-  if(row){
-    const val = c => row.cats[c.id] ? row.cats[c.id].v : 0;
-    s += `<polygon points="${poly(val)}" fill="${Lv.color}" fill-opacity="${done ? .22 : .07}" stroke="${Lv.color}" stroke-width="2.5" stroke-linejoin="round" ${done ? '' : 'stroke-dasharray="5 4"'}/>`;
-    sp.forEach((c,i) => {
-      const x = row.cats[c.id], [px,py] = pt(i, x ? x.v : 0), col = levelOf(c.game).color;
-      s += x ? `<circle cx="${f(px)}" cy="${f(py)}" r="5.5" fill="${col}" stroke="var(--card)" stroke-width="1.5"/>`
-             : `<circle cx="${f(px)}" cy="${f(py)}" r="3.5" fill="var(--card)" stroke="${col}" stroke-width="1.25"/>`;
-    });
-  }
-  return s + `</svg>`;
-}
-// A row of category dots: filled for each category played today.
-function pie(row, list = SPOKES){
-  return `<span style="display:inline-flex;gap:3px;flex:none">` + list.map(c =>
-    `<i title="${esc(c.name)}" style="width:8px;height:8px;border-radius:50%;display:inline-block;${row.cats[c.id] ? 'background:'+levelOf(c.game).color : 'border:1.5px solid '+levelOf(c.game).color+';opacity:.45'}"></i>`).join('') + `</span>`;
 }
 
 /* ---------- Share the day's standings ---------- */
 // Set this once the site has a public address; it's added to the end of the share text.
 const SHARE_URL = '';
-const MEDALS = ['🥇','🥈','🥉'], LEVEL_EMOJI = {bronze:'🟫', silver:'⬜', gold:'🟨'};
+const MEDALS = ['🥇','🥈','🥉'];
 const SHARE_TOP = 10;
-// Builds share text for one level's standings, like the result text the games themselves share.
-function shareText(lid, lvRows, day){
-  const Lv = L[lid], max = Lv.n * 100;
+// Builds share text for the day's standings, like the result text the games themselves share.
+function shareText(rows, places, byGame, day){
   const d = new Date(day+'T12:00:00').toLocaleDateString(undefined, {weekday:'short', month:'short', day:'numeric'});
-  const done = lvRows.filter(x => x.lv.done), going = lvRows.filter(x => !x.lv.done);
-  const lines = [`trivialRANKS · ${d}`, `${LEVEL_EMOJI[lid]} ${Lv.name} · ${Lv.n} games · out of ${max}`, ''];
-  const line = (x, i) => `${MEDALS[i] || (i+1) + '.'} ${nameOf(x.r.id)} ${x.lv.total}`;
-  done.slice(0, SHARE_TOP).forEach((x, i) => lines.push(line(x, i)));
-  const myAt = done.findIndex(x => x.r.id === uid);
-  if(myAt >= SHARE_TOP) lines.push('…', line(done[myAt], myAt));
-  else if(done.length > SHARE_TOP) lines.push(`…and ${done.length - SHARE_TOP} more`);
-  if(!done.length) lines.push(`Nobody has finished ${Lv.name} yet.`);
-  if(going.length) lines.push('', 'Still playing: ' + going.map(x => `${nameOf(x.r.id)} (${x.lv.played}/${Lv.n})`).join(', '));
+  const g = currentGroup(), lines = [`trivialRANKS · ${g ? g.name + ' · ' : ''}${d}`, ''];
+  const line = i => `${MEDALS[places[i]-1] || places[i] + '.'} ${nameOf(rows[i].id)} ${rows[i].total} · ${rows[i].played} game${rows[i].played === 1 ? '' : 's'}`;
+  rows.slice(0, SHARE_TOP).forEach((_, i) => lines.push(line(i)));
+  const myAt = rows.findIndex(r => r.id === uid);
+  if(myAt >= SHARE_TOP) lines.push('…', line(myAt));
+  else if(rows.length > SHARE_TOP) lines.push(`…and ${rows.length - SHARE_TOP} more`);
+  const top = Object.entries(byGame).sort((a,b) => b[1].length - a[1].length)[0];
+  if(top && top[1].length > 1) lines.push('', `Most played: ${G[top[0]].name} (${top[1].length})`);
   if(SHARE_URL) lines.push('', SHARE_URL);
   return lines.join('\n');
 }
@@ -487,16 +466,16 @@ function showConfirm(r, raw){
   else if(r.day < y) problem = 'Results can only be logged within a day of the puzzle.';
   else if(me() && me().results && me().results[r.day] && me().results[r.day][r.game]) problem = `You already logged ${g.name} for ${r.day === t ? 'today' : 'yesterday'}. Results are locked once saved.`;
   const canSave = !problem && ready && !saving;
-  const off = levelOf(r.game);
+  const others = ((dayData(r.day).byGame[r.game]) || []).filter(x => x.id !== uid).length;
   c.className = 'card confirm' + (problem ? ' bad' : '');
-  c.style.borderLeft = `6px solid ${off ? off.color : 'var(--line)'}`;
+  c.style.borderLeft = `6px solid ${gameColor(r.game)}`;
   c.innerHTML = `
     <div class="row between">
-      <div>${off ? levelBadge(off) : '<span class="badge bonus">bonus</span>'} <span class="sub">${esc(C[g.cat].name)}</span><h2 style="margin:4px 0 0">${esc(g.name)} ${esc(r.puzzle||'')}</h2></div>
+      <div>${catBadge(r.game)}<h2 style="margin:4px 0 0">${esc(g.name)} ${esc(r.puzzle||'')}</h2></div>
       <span class="badge ${r.verified?'':'beta'}">${r.verified?'Parsed':'Beta parser'}</span>
     </div>
     <div class="big" style="margin:8px 0 2px">${esc(r.display)}</div>
-    <div class="meta">${r.day === t ? 'Today' : 'Yesterday'} · ${pctMax(r.game, r.score)}% of max${off ? ' · counts toward ' + esc(off.name) + (off.id==='gold' ? '' : ' and up') : ' · bonus game (not on the chart)'}${r.rounds && r.rounds.length ? ' · rounds ' + r.rounds.join(', ') : ''}</div>
+    <div class="meta">${r.day === t ? 'Today' : 'Yesterday'} · ${pctMax(r.game, r.score)}% of max · ${others ? others + (others === 1 ? ' other player' : ' others') + ' played it' : 'first to play it'}${r.rounds && r.rounds.length ? ' · rounds ' + r.rounds.join(', ') : ''}</div>
     ${!r.verified ? '<div class="hint">We haven\'t seen this game\'s share text yet, so check the score looks right.</div>' : ''}
     ${problem ? `<div class="hint" style="color:var(--warm)">${esc(problem)}</div>` : ''}
     ${!ready ? '<div class="hint" style="color:var(--warm)">Saving needs the shared board, which isn\'t connected yet.</div>' : ''}
@@ -556,18 +535,18 @@ const MAIN_IDS = ['pasteCard','tab-today','tab-games','tab-week'];
 function showPage(on){
   MAIN_IDS.forEach(id => { if(on) $(id).hidden = true; });
   document.querySelector('nav').hidden = on;
-  if(on){ $('confirm').hidden = true; $('nameBox').hidden = true; }
+  if(on){ $('confirm').hidden = true; $('nameBox').hidden = true; $('joinCard').hidden = true; $('boardBar').hidden = true; }
   else { $('pasteCard').hidden = false; const t = document.querySelector('nav button.on').dataset.tab; ['today','games','week'].forEach(x => $('tab-'+x).hidden = x !== t); }
   $('page').hidden = !on;
 }
 // Every day the player has results, newest first, each with its levels and points (% of max).
 function myDays(id){
   const res = (players[id] && players[id].results) || {};
-  const days = Object.keys(res).sort().reverse().map(day => ({day, row: dayData(day).all.find(r => r.id === id)})).filter(x => x.row);
-  return days;
+  return Object.keys(res).sort().reverse().map(day => ({day, row: dayData(day).rows.find(r => r.id === id)})).filter(x => x.row);
 }
+// A streak counts days with at least one game logged.
 function streaks(days){
-  const done = new Set(days.filter(d => d.row.top).map(d => d.day));
+  const done = new Set(days.map(d => d.day));
   let cur = 0, d = today();
   if(!done.has(d)) d = addDays(d, -1);
   while(done.has(d)){ cur++; d = addDays(d, -1); }
@@ -581,7 +560,6 @@ const tile = (big, label, color) => `<div style="flex:1;min-width:30%;background
 function renderProfile(){
   const p = me() || {}, days = myDays(uid);
   const since = days.length ? days.at(-1).day : null;
-  const groups = demo ? [DEMO_GROUP + ' (sample)', 'Global board'] : ['Global board'];
   return backBar('Profile') + `
   <div class="card">
     <div class="row" style="gap:14px">
@@ -595,50 +573,49 @@ function renderProfile(){
     </div>
     <div class="hint">${demo ? 'Name changes are off while previewing the sample group.' : 'Shown to everyone on your boards.'}</div>
   </div>
-  <div class="card"><h2>Groups</h2><div class="list">${groups.map(g => `<div class="li"><div class="grow name">${esc(g)}</div></div>`).join('')}</div>
-    <div class="hint">Creating and joining groups comes with the full site.</div></div>
+  ${groupsCard()}
   <div class="card"><h2>Preferences</h2>
     <div class="row between" style="flex-wrap:wrap;gap:8px"><span>Appearance</span>${themeSeg()}</div>
-    <div class="hint" style="margin-top:12px">Sign-in: this prototype uses your claude.ai account. The full site will use Google or an emailed sign-in link.</div></div>`;
+    ${groupsApi ? '' : '<div class="hint" style="margin-top:12px">Sign-in: this copy uses your claude.ai account.</div>'}</div>`;
 }
 
 function renderStats(){
   const days = myDays(uid), st = streaks(days);
-  const count = id => days.filter(d => d.row.top && d.row.top.id === id).length;
-  // Daily bars, last 30 days, height = points at the highest level finished (of 800), colored by that level.
+  const games = days.reduce((a,d) => a + d.row.played, 0);
+  const bestDay = days.reduce((a,d) => Math.max(a, d.row.total), 0);
+  const avgDay = days.length ? Math.round(days.reduce((a,d) => a + d.row.total, 0) / days.length) : 0;
+  // Daily bars, last 30 days, height = the day's total points.
   const t = today(), span = [...Array(30)].map((_,i) => addDays(t, i - 29));
   const byDay = Object.fromEntries(days.map(d => [d.day, d.row]));
-  const W = 360, H = 120, X0 = 24, bw = (W - X0) / 30;
+  const top = Math.max(200, Math.ceil(Math.max(0, ...span.map(d => byDay[d] ? byDay[d].total : 0)) / 200) * 200);
+  const W = 360, H = 120, X0 = 28, bw = (W - X0) / 30;
   let chart = `<svg viewBox="0 -8 ${W} ${H + 26}" width="100%" role="img" aria-label="Daily points, last 30 days">`;
-  for(const g of [400, 800]) chart += `<line x1="${X0}" x2="${W}" y1="${H - g/800*H}" y2="${H - g/800*H}" stroke="var(--grid)"/><text x="0" y="${H - g/800*H + 3}" font-size="9" fill="var(--faint)">${g}</text>`;
+  for(const g of [top/2, top]) chart += `<line x1="${X0}" x2="${W}" y1="${H - g/top*H}" y2="${H - g/top*H}" stroke="var(--grid)"/><text x="0" y="${H - g/top*H + 3}" font-size="9" fill="var(--faint)">${g}</text>`;
   span.forEach((d,i) => {
     const r = byDay[d], x = X0 + i * bw + 1.5;
-    if(r && r.top){ const h = r.total / 800 * H; chart += `<rect x="${x.toFixed(1)}" y="${(H-h).toFixed(1)}" width="${(bw-3).toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="${r.top.color}"><title>${d}: ${r.total} (${r.top.name})</title></rect>`; }
-    else if(r) chart += `<rect x="${x.toFixed(1)}" y="${H-3}" width="${(bw-3).toFixed(1)}" height="3" rx="1.5" fill="var(--idle)"><title>${d}: started, not finished</title></rect>`;
+    if(r){ const h = Math.max(3, r.total / top * H); chart += `<rect x="${x.toFixed(1)}" y="${(H-h).toFixed(1)}" width="${(bw-3).toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="var(--accent)"><title>${d}: ${r.total} pts, ${r.played} game${r.played===1?'':'s'}</title></rect>`; }
   });
   chart += `<text x="${X0}" y="${H+14}" font-size="9" fill="var(--faint)">${span[0].slice(5)}</text><text x="${W}" y="${H+14}" text-anchor="end" font-size="9" fill="var(--faint)">Today</text></svg>`;
-  // Per-game averages across every day played.
-  const games = GAMES.map(g => {
+  // Per-game averages across every day played, most played first.
+  const per = GAMES.map(g => {
     const rs = days.map(d => (players[uid].results[d.day] || {})[g.id]).filter(Boolean);
     if(!rs.length) return null;
     const best = rs.reduce((a,b) => better(g.id, b.score, a.score) ? b : a);
     return {g, n: rs.length, avg: Math.round(rs.reduce((a,b) => a + pctMax(g.id, b.score), 0) / rs.length), best};
-  }).filter(Boolean).sort((a,b) => (levelOf(a.g.id) ? LEVELS.indexOf(levelOf(a.g.id)) : 9) - (levelOf(b.g.id) ? LEVELS.indexOf(levelOf(b.g.id)) : 9));
+  }).filter(Boolean).sort((a,b) => b.n - a.n);
   return backBar('History & stats') + `
   <div class="card"><div class="row" style="flex-wrap:wrap;gap:8px">
-    ${tile(count('gold'), 'Gold days', L.gold.color)}${tile(count('silver'), 'Silver days', L.silver.color)}${tile(count('bronze'), 'Bronze days', L.bronze.color)}
-    ${tile(days.length, 'days played')}${tile(st.cur, 'day streak')}${tile(st.best, 'best streak')}
-  </div><div class="hint">A streak counts days you finished at least Bronze.</div></div>
+    ${tile(days.length, 'days played')}${tile(games, 'games played')}${tile(avgDay, 'avg points a day')}
+    ${tile(st.cur, 'day streak')}${tile(st.best, 'best streak')}${tile(bestDay, 'best day')}
+  </div><div class="hint">A streak counts days you logged at least one game.</div></div>
   <div class="card"><h2>Last 30 days</h2>${chart}
-    <div class="legend">${LEVELS.map(l => `<span class="cat"><i style="background:${l.color};border-radius:3px"></i>${l.name}</span>`).join('')}<span class="cat"><i style="background:var(--idle);border-radius:3px"></i>Unfinished</span></div>
-    <div class="hint">Bar height = points at the highest level finished that day (out of 800).</div></div>
-  <div class="card"><h2>By game</h2>${games.length ? `<table class="cattable"><tr><td class="sub">Game</td><td class="sub" style="text-align:center">Played</td><td class="sub" style="text-align:center">Best</td><td class="sub" style="font-weight:400">Avg</td></tr>` + games.map(x => {
-      const lv = levelOf(x.g.id);
-      return `<tr><td><span class="name" style="color:${lv ? lv.color : 'var(--muted)'}">${esc(x.g.name)}</span></td><td style="text-align:center;font-weight:400">${x.n}</td><td style="text-align:center;font-weight:400" class="sub">${esc(x.best.display)}</td><td>${x.avg}%</td></tr>`;
-    }).join('') + `</table><div class="hint">Avg = average % of the best possible score.</div>` : `<div class="empty">No games logged yet.</div>`}</div>
+    <div class="hint">Bar height = that day's total points.</div></div>
+  <div class="card"><h2>By game</h2>${per.length ? `<table class="cattable"><tr><td class="sub">Game</td><td class="sub" style="text-align:center">Played</td><td class="sub" style="text-align:center">Best</td><td class="sub" style="font-weight:400">Avg</td></tr>` + per.map(x =>
+      `<tr><td><span class="name" style="color:${gameColor(x.g.id)}">${esc(x.g.name)}</span></td><td style="text-align:center;font-weight:400">${x.n}</td><td style="text-align:center;font-weight:400" class="sub">${esc(x.best.display)}</td><td>${x.avg}%</td></tr>`
+    ).join('') + `</table><div class="hint">Avg = average % of the best possible score.</div>` : `<div class="empty">No games logged yet.</div>`}</div>
   <div class="card"><h2>History</h2>${days.length ? `<div class="list">` + days.slice(0, 14).map(d => `
-      <div class="li"><div class="grow"><div class="name">${new Date(d.day+'T12:00:00').toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'})}</div><div style="margin-top:3px">${pie(d.row)}</div></div>
-        <div style="text-align:right">${d.row.top ? levelBadge(d.row.top) + `<div class="score" style="margin-top:2px">${d.row.total}<span class="sub"> / ${d.row.top.n*100}</span></div>` : `<div class="sub">${d.row.played} game${d.row.played===1?'':'s'}, unfinished</div>`}</div></div>`).join('') + `</div>` : `<div class="empty">Nothing logged yet.</div>`}</div>`;
+      <div class="li"><div class="grow"><div class="name">${new Date(d.day+'T12:00:00').toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'})}</div><div style="margin-top:3px">${dots(d.row)}</div></div>
+        <div style="text-align:right"><div class="score">${d.row.total}<span class="sub"> pts</span></div><div class="sub">${d.row.played} game${d.row.played===1?'':'s'}</div></div></div>`).join('') + `</div>` : `<div class="empty">Nothing logged yet.</div>`}</div>`;
 }
 
 /* ---------- Tabs & render ---------- */
@@ -652,16 +629,17 @@ function switchTab(t){
 let demo = false, live = null;
 const DEMO_GROUP = 'Trivia Night Crew';
 const DEMO_PLAYERS = [
-  // skill: typical quality 0-1. today: level reached today (or games played if partial). lv: chance of finishing each level on other days.
-  {id:'d-you',    name:'You',    skill:.72, today:{level:'silver', extra:['krillion','immaculate']}, lv:[1,.9,.55]},
-  {id:'d-ana',    name:'Ana',    skill:.84, today:{level:'gold'},   lv:[1,.95,.85]},
-  {id:'d-marcus', name:'Marcus', skill:.76, today:{level:'gold'},   lv:[1,.85,.6]},
-  {id:'d-priya',  name:'Priya',  skill:.9,  today:{level:'silver'}, lv:[.95,.7,.3]},
-  {id:'d-dev',    name:'Dev',    skill:.62, today:{level:'silver', extra:['bandle']}, lv:[1,.7,.4]},
-  {id:'d-sam',    name:'Sam',    skill:.68, today:{level:'bronze', extra:['catfishing']}, lv:[.95,.35,.1]},
-  {id:'d-lena',   name:'Lena',   skill:.52, today:{level:'bronze'}, lv:[.9,.5,.2]},
-  {id:'d-tom',    name:'Tom',    skill:.45, today:{partial:['wordle','maptap']}, lv:[.8,.2,.05]},
+  // skill: typical quality 0-1. today: games logged today. n: how many games they usually play.
+  {id:'d-you',    name:'You',    skill:.72, n:5, today:['wordle','maptap','framed','catfishing','krillion']},
+  {id:'d-ana',    name:'Ana',    skill:.84, n:7, today:['wordle','maptap','framed','catfishing','timeguessr','krillion','immaculate','bandle']},
+  {id:'d-marcus', name:'Marcus', skill:.76, n:6, today:['wordle','maptap','framed','catfishing','timeguessr','quordle']},
+  {id:'d-priya',  name:'Priya',  skill:.9,  n:4, today:['wordle','maptap','worldle','framed']},
+  {id:'d-dev',    name:'Dev',    skill:.62, n:5, today:['wordle','framed','bandle','globle','catfishing']},
+  {id:'d-sam',    name:'Sam',    skill:.68, n:3, today:['wordle','catfishing','immaculate']},
+  {id:'d-lena',   name:'Lena',   skill:.52, n:3, today:['wordle','maptap','travle']},
+  {id:'d-tom',    name:'Tom',    skill:.45, n:2, today:['wordle','maptap']},
 ];
+const DEMO_POPULAR = ['wordle','maptap','framed','catfishing','timeguessr','krillion','immaculate','bandle','worldle','quordle'];
 function seeded(seed){ return () => { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; }; }
 function fakeResult(gid, q){
   const tries = (cuts, fail) => { for(let i = 0; i < cuts.length; i++) if(q > cuts[i]) return i + 1; return fail; };
@@ -674,22 +652,23 @@ function fakeResult(gid, q){
     case 'krillion': { const v = Math.round(150 + q*500); return {score:v, display:v+' points'}; }
     case 'immaculate': { const v = Math.max(0, Math.min(9, Math.round(q*9))); return {score:v, display:v+'/9'}; }
   }
+  const g = G[gid];
+  if(g.higher){ const v = Math.round(q * g.max); return {score:v, display:v+'/'+g.max}; }
+  const v = Math.round(g.fail - q * (g.fail - (g.best || 1)));
+  return {score:v, display: v >= g.fail ? 'X' : String(v)};
 }
 function makeDemo(){
   const out = {}, t = today();
   DEMO_PLAYERS.forEach((pl, pi) => {
     const r = seeded(pi * 7919 + 17), results = {};
+    const pool = [...new Set([...pl.today, ...DEMO_POPULAR])];
     for(let d = 0; d < 30; d++){
       const day = addDays(t, -d);
       let games;
-      if(d === 0){
-        const T = pl.today;
-        games = T.partial ? T.partial.slice() : [...levelSpokes(T.level).map(c => c.game), ...(T.extra || [])];
-      } else {
+      if(d === 0) games = pl.today;
+      else {
         if(r() > .88) continue;  // took the day off
-        const n = r() < pl.lv[2] ? 8 : r() < pl.lv[1] ? 5 : r() < pl.lv[0] ? 3 : 1 + Math.floor(r()*2);
-        games = SPOKES.slice(0, n).map(c => c.game);
-        if(r() < .3) games.push('worldle');
+        games = pool.slice(0, Math.max(1, pl.n + Math.round((r() - .5) * 4)));
       }
       results[day] = {};
       for(const g of games){
@@ -704,10 +683,10 @@ function makeDemo(){
 function toggleDemo(){
   if(!demo){
     live = {players, uid, ready}; players = makeDemo(); ready = false; demo = true; uid = 'd-you';
-    players['d-you'].name = (live.players[live.uid] && live.players[live.uid].name) || load('name') || 'Geoff';
+    players['d-you'].name = (live.players[live.uid] && live.players[live.uid].name) || load('name') || 'You';
   }
   else { players = live.players; uid = live.uid; ready = live.ready; demo = false; }
-  viewing = null; chartLevel = null; render();
+  viewing = null; render();
 }
 // The sample-group preview is hidden; add ?sample to the address to show it again.
 const SHOW_SAMPLE = /[?&]sample\b/.test(location.search);
@@ -730,19 +709,16 @@ function renderHeader(){
   $('nameChip').style.cssText = page === 'profile' ? 'background:var(--accent);color:#fff' : '';
   $('statsBtn').style.cssText = page === 'stats' ? 'background:var(--accent);color:#fff' : '';
   $('nameBox').hidden = !(ready && !(me() && me().name) && !load('name'));
+  renderJoin(); renderBoards();
 }
-const levelPills = (row, sel) => `<div class="row" style="gap:6px;flex-wrap:wrap;margin:8px 0 2px">` + row.levels.map(l =>
-  `<button data-chart="${l.id}" aria-pressed="${l.id===sel}" style="flex:1;min-width:90px;text-align:left;font-family:inherit;cursor:pointer;border-radius:10px;padding:6px 9px;${l.done ? 'background:'+l.color+';color:#fff;border:1.5px solid '+l.color : 'background:var(--surface);border:1.5px solid '+l.color+';color:'+l.color};${l.id===sel ? 'box-shadow:0 0 0 3px var(--card),0 0 0 5px '+l.color+';' : 'opacity:.75;'}">
-    <div style="font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.4px">${l.name}${l.done ? ' ✓' : ''}</div>
-    <div style="font-weight:700;font-size:15px">${l.done ? l.total + '<span style="font-weight:500;font-size:12px"> / ' + l.n*100 + '</span>' : l.played + ' of ' + l.n}</div></button>`).join('') + `</div>`;
 
 function render(){
   renderHeader();
   showPage(!!page);
   if(page){
-    $('page').innerHTML = page === 'profile' ? renderProfile() : renderStats();
-    $('pageBack').onclick = () => openPage(page);
-    wireTheme();
+    $('page').innerHTML = page === 'profile' ? renderProfile() : page === 'group' ? renderGroup() : renderStats();
+    $('pageBack').onclick = () => page === 'group' ? (page = 'profile', render()) : openPage(page);
+    wireTheme(); wireGroups();
     if($('profSave')) $('profSave').onclick = async () => {
       const n = $('profName').value.trim().slice(0,24); if(!n) return;
       store('name', n);
@@ -751,85 +727,201 @@ function render(){
     };
     return;
   }
-  const t = today(), {rows, partial, all, byGame} = dayData(t);
+  const t = today(), {rows, byGame, places} = dayData(t);
+  if(!viewing || !rows.find(r => r.id === viewing)) viewing = rows.find(r => r.id === uid) ? uid : (rows[0] || {}).id;
+  const vr = rows.find(r => r.id === viewing);
 
-  /* Today */
-  if(!viewing || !all.find(r => r.id === viewing)) viewing = all.find(r => r.id === uid) ? uid : (rows[0] || all[0] || {}).id;
-  const vr = all.find(r => r.id === viewing);
-  // The selected level drives both the chart and the standings. Default: the viewer's highest level finished.
-  const lid = chartLevel || (vr && vr.top ? vr.top.id : 'bronze'), Lv = L[lid], lmax = Lv.n * 100;
-  let h = `<div class="card">
-    <div class="row between"><h2 style="margin:0">${vr ? (vr.id === uid ? 'Your day' : esc(nameOf(vr.id)) + "'s day") : 'Today'}</h2>${vr && vr.id !== uid && all.find(r => r.id === uid) ? '<button class="chip" id="backToMe">← Back to you</button>' : ''}</div>`;
-  if(vr){
-    h += levelPills(vr, lid);
-    const chart = spider(vr, lid, byGame), onChart = chart ? chartSpokes(lid, byGame).map(c => c.id) : [];
-    const offChart = levelSpokes(lid).filter(c => !onChart.includes(c.id));
-    h += chart;
-    if(chart) h += `<div class="hint" style="text-align:center;margin-top:0">Tap a level to compare everyone on it. The chart shows games ${MIN_FOR_CHART}+ people played today${vr.levels.find(l => l.id === lid).done ? '' : '; dashed until the level is finished'}.</div>`;
-    h += scoreList(vr, offChart, byGame, chart ? 'Not on the chart yet' : `${Lv.name} games · chart appears once ${MIN_SPOKES} games each have ${MIN_FOR_CHART}+ players`);
-  } else {
-    h += `<div class="empty">No results yet today. Play a game and paste your result above.</div>`;
-  }
-  h += `</div>`;
-
-  // Standings for the selected level: finished first by points, then those still playing (faded).
-  const lvRows = all.map(r => ({r, lv: r.levels.find(l => l.id === lid)})).filter(x => x.lv.played > 0)
-    .sort((a,b) => (b.lv.done - a.lv.done) || (b.lv.total - a.lv.total));
-  const lsp = levelSpokes(lid);
-  let rk = 0;
-  h += `<div class="card"><div class="row between"><h2 style="margin:0;color:${Lv.color}">${Lv.name} standings</h2><div class="row" style="gap:8px"><span class="sub">${Lv.n} games · out of ${lmax}</span>${lvRows.length ? `<button class="chip" id="shareBtn" aria-label="Share ${Lv.name} standings"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>Share</button>` : ''}</div></div>
+  /* Today: standings, games others played that you haven't, then one player's day */
+  let h = `<div class="card"><div class="row between"><h2 style="margin:0">Today's standings</h2>${rows.length ? `<button class="chip" id="shareBtn" aria-label="Share today's standings"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>Share</button>` : ''}</div>
     <div id="shareOut" hidden style="margin-top:8px"><div class="sub"></div><pre style="white-space:pre-wrap;user-select:all;background:var(--field);border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:4px 0 0;font:12.5px/1.45 ui-monospace,Menlo,monospace"></pre></div>`;
-  h += lvRows.length ? `<div class="list" style="margin-top:6px">` + lvRows.map(({r, lv}) => {
-      const done = lv.done, n = done ? ++rk : null;
-      return `<div class="li click ${r.id===uid?'me':''} ${r.id===viewing?'sel':''}" data-view="${esc(r.id)}" style="${done ? '' : 'opacity:.45'}">
-        <div class="rank ${n===1?'r1':''}">${n || '–'}</div>
-        <div class="grow"><div class="name">${esc(nameOf(r.id))}</div><div style="margin-top:3px">${pie(r, lsp)}</div></div>
-        <div style="text-align:right"><div class="score">${lv.total}<span class="sub"> / ${lmax}</span></div><div class="sub">${done ? (r.top && r.top.id !== lid ? 'Best: ' + r.top.name : 'Finished') : lv.played + ' of ' + Lv.n + ' played'}</div></div>
-      </div>`; }).join('') + `</div>`
-    : `<div class="empty">Nobody has played a ${Lv.name} game today.</div>`;
-  h += `<div class="hint">Ranked by points on the ${Lv.name} games. Each game scores your rank among everyone who played it today (100 = best); with fewer than ${MIN_FOR_PCT} players it uses % of the best possible score. Faded players haven't finished all ${Lv.n}.</div></div>`;
-  $('tab-today').innerHTML = h;
-  document.querySelectorAll('[data-view]').forEach(el => el.onclick = () => { chartLevel = lid; viewing = el.dataset.view; render(); });
-  if($('backToMe')) $('backToMe').onclick = () => { viewing = uid; render(); };
-  if($('shareBtn')) $('shareBtn').onclick = () => shareStandings(shareText(lid, lvRows, t));
+  h += rows.length ? `<div class="list" style="margin-top:6px">` + rows.map((r, i) => `
+      <div class="li click ${r.id===uid?'me':''} ${r.id===viewing?'sel':''}" data-view="${esc(r.id)}">
+        <div class="rank ${places[i]===1?'r1':''}">${places[i]}</div>
+        <div class="grow"><div class="name">${esc(nameOf(r.id))}</div>${stack(r, rows[0].total)}</div>
+        <div style="text-align:right"><div class="score">${r.total}<span class="sub"> pts</span></div><div class="sub">${r.played} game${r.played===1?'':'s'} · avg ${r.avg}</div></div>
+      </div>`).join('') + `</div>` + stackLegend(rows)
+    : `<div class="empty">No results yet today. Play a game and paste your result above.</div>`;
+  h += `<div class="hint">Ranked by total points. Each game is worth up to 100: your place among everyone who played it today (100 = best), or % of the best possible score when fewer than ${MIN_FOR_PCT} played it. Bars show each player's total, split by game. Tap a player to see their day.</div></div>`;
 
-  /* Games: grouped by tier (Bronze, Silver, Gold, then bonus), category as plain text */
+  const todo = GAMES.filter(g => byGame[g.id] && !byGame[g.id].some(x => x.id === uid))
+    .sort((a,b) => byGame[b.id].length - byGame[a.id].length);
+  if(todo.length) h += `<div class="card"><h2>${uid && vr && rows.some(r => r.id === uid) ? 'Others played these' : 'Played today'}</h2><div class="list">` + todo.map(g => {
+      const list = byGame[g.id], best = list[0];
+      return `<div class="game"><div class="dot todo" style="color:${gameColor(g.id)}">${esc(g.name[0])}</div>
+        <div class="grow"><div class="name">${esc(g.name)}</div>
+          <div class="sub">${esc(namesOf(list.map(x => x.id)))} · best ${esc(best.e.display)}</div></div>
+        <a class="play" href="${g.url}" target="_blank" rel="noopener" data-game="${g.id}">Play ↗</a></div>`;
+    }).join('') + `</div></div>`;
+
+  if(vr){
+    const place = places[rows.indexOf(vr)];
+    h += `<div class="card">
+      <div class="row between"><h2 style="margin:0">${vr.id === uid ? 'Your day' : esc(nameOf(vr.id)) + "'s day"}</h2>${vr.id !== uid && rows.find(r => r.id === uid) ? '<button class="chip" id="backToMe">← Back to you</button>' : ''}</div>
+      <div class="sub" style="margin-top:2px">${ord(place)} of ${rows.length} · ${vr.total} pts from ${vr.played} game${vr.played===1?'':'s'}</div>
+      ${dayList(vr, byGame)}</div>`;
+  }
+  $('tab-today').innerHTML = h;
+  document.querySelectorAll('[data-view]').forEach(el => el.onclick = () => { viewing = el.dataset.view; render(); });
+  if($('backToMe')) $('backToMe').onclick = () => { viewing = uid; render(); };
+  if($('shareBtn')) $('shareBtn').onclick = () => shareStandings(shareText(rows, places, byGame, t));
+
+  /* Games: every game by category, with who has played it today */
   const mine = (me() && me().results && me().results[t]) || {};
-  const groups = LEVELS.map((l, i) => ({title: l.name + (i ? ' adds' : ''), color: l.color, games: SPOKES.slice(i ? LEVELS[i-1].n : 0, l.n).map(c => G[c.game]), level: l}))
-    .concat([{title: "Bonus · don't count", color: 'var(--faint)', games: GAMES.filter(g => !levelOf(g.id))}]);
   let gh = `<div class="card">`;
-  for(const grp of groups){
-    const l = grp.level, done = l ? levelSpokes(l.id).filter(c => mine[c.game]).length : 0;
-    gh += `<div class="catblock" style="border-color:${grp.color}"><div class="row between"><h3 style="color:${grp.color}">${esc(grp.title)}</h3>${l ? `<span class="sub">${done === l.n ? l.name + ' complete ✓' : done + ' of ' + l.n + ' for ' + l.name}</span>` : ''}</div>` + grp.games.map(g => {
-      const e = mine[g.id];
-      return `<div class="game"><div class="dot ${e?'':'todo'}" style="background:${grp.color};color:${e?'#fff':grp.color}">${e?'✓':esc(g.name[0])}</div>
+  for(const cat of CATS){
+    const gs = GAMES.filter(g => g.cat === cat.id), done = gs.filter(g => mine[g.id]).length;
+    gh += `<div class="catblock" style="border-color:${cat.color}"><div class="row between"><h3 style="color:${cat.color}">${esc(cat.name)}</h3><span class="sub">${done ? done + ' of ' + gs.length + ' played' : ''}</span></div>` + gs.map(g => {
+      const e = mine[g.id], others = (byGame[g.id] || []).filter(x => x.id !== uid).map(x => x.id);
+      return `<div class="game"><div class="dot ${e?'':'todo'}" style="background:${cat.color};color:${e?'#fff':cat.color}">${e?'✓':esc(g.name[0])}</div>
         <div class="grow"><div class="name">${esc(g.name)} ${g.verified?'':'<span class="badge beta">beta</span>'}</div>
-          <div class="sub">${esc(C[g.cat].name)}${e ? ' · ' + esc(e.display) : ''}</div></div>
+          <div class="sub">${[e ? esc(e.display) : '', others.length ? esc(namesOf(others)) + ' played today' : ''].filter(Boolean).join(' · ')}</div></div>
         <a class="play ${e?'done':''}" href="${g.url}" target="_blank" rel="noopener" data-game="${g.id}">${e?'Open':'Play'} ↗</a></div>`;
     }).join('') + `</div>`;
   }
-  gh += `<div class="hint">Games open in a new tab. When you finish, tap the game's Share button and paste here.</div></div>`;
+  gh += `<div class="hint">Every game counts toward your total. Games open in a new tab; when you finish, tap the game's Share button and paste here.</div></div>`;
   $('tab-games').innerHTML = gh;
   document.querySelectorAll('a.play, a.spoke').forEach(a => a.onclick = () => { store('launch:'+a.dataset.game+':'+today(), new Date().toISOString()); });
 
-  /* Week: the same level as Today, averaged over the days each player finished it */
-  const days = [...Array(7)].map((_,i) => addDays(t,-i));
+  /* Week: total points over the last 7 days */
   const agg = {};
-  for(const d of days){ for(const r of dayData(d).all){ const lv = r.levels.find(x => x.id === lid); if(lv.done) (agg[r.id] ||= []).push(lv.total); } }
-  const wk = Object.entries(agg).map(([id,a]) => ({id, days:a.length, avg:Math.round(a.reduce((x,y)=>x+y,0)/a.length)})).sort((a,b) => b.avg - a.avg || b.days - a.days);
-  const weekSeg = `<div class="seg" role="group" aria-label="Level">` + LEVELS.map(l => `<button data-chart="${l.id}" class="${l.id===lid?'on':''}" style="${l.id===lid?'color:'+l.color:''}">${l.name}</button>`).join('') + `</div>`;
-  $('tab-week').innerHTML = `<div class="card"><div class="row between" style="flex-wrap:wrap;gap:8px"><h2 style="margin:0;color:${Lv.color}">${Lv.name}, last 7 days</h2>${weekSeg}</div>` + (wk.length ? `<div class="list" style="margin-top:6px">` + wk.map((r,i) => `
-      <div class="li ${r.id===uid?'me':''}"><div class="rank ${i===0?'r1':''}">${i+1}</div>
-        <div class="grow"><div class="name">${esc(nameOf(r.id))}</div><div class="sub">finished ${Lv.name} ${r.days} day${r.days>1?'s':''}</div></div>
-        <div style="text-align:right"><div class="score">${r.avg}<span class="sub"> / ${lmax}</span></div><div class="sub">avg per day</div></div></div>`).join('') + `</div>
-      <div class="hint">Average points on the days each player finished ${Lv.name}, so skipping a day doesn't count against you. Same level as the Today tab.</div>` : `<div class="empty">Nobody finished ${Lv.name} this week yet.</div>`) + `</div>`;
-
-  document.querySelectorAll('[data-chart]').forEach(el => el.onclick = () => { chartLevel = el.dataset.chart; render(); });
+  for(const d of [...Array(7)].map((_,i) => addDays(t,-i))){
+    for(const r of dayData(d).rows){ const a = agg[r.id] ||= {id:r.id, total:0, games:0, days:0}; a.total += r.total; a.games += r.played; a.days++; }
+  }
+  const wk = Object.values(agg).sort((a,b) => b.total - a.total || b.days - a.days), wp = placesOf(wk, r => r.total);
+  $('tab-week').innerHTML = `<div class="card"><h2>Last 7 days</h2>` + (wk.length ? `<div class="list">` + wk.map((r,i) => `
+      <div class="li ${r.id===uid?'me':''}"><div class="rank ${wp[i]===1?'r1':''}">${wp[i]}</div>
+        <div class="grow"><div class="name">${esc(nameOf(r.id))}</div><div class="sub">${r.games} game${r.games===1?'':'s'} over ${r.days} day${r.days===1?'':'s'}</div></div>
+        <div style="text-align:right"><div class="score">${r.total}<span class="sub"> pts</span></div><div class="sub">avg ${Math.round(r.total / r.days)} a day</div></div></div>`).join('') + `</div>
+      <div class="hint">Total points from every game logged this week.</div>` : `<div class="empty">Nobody has played this week yet.</div>`) + `</div>`;
   const collapsed = Object.keys(mine).length > 0 && !pasteOpen && !box.value && $('confirm').hidden;
   $('pasteBody').hidden = collapsed; $('pasteOpen').hidden = !collapsed;
   $('pasteOpen').onclick = () => { pasteOpen = true; render(); box.focus(); };
 
   if(!$('confirm').hidden && pending) showConfirm(pending, $('confirm')._raw);
+}
+
+/* ---------- Groups (hosted site only; claude.ai has no 'groups', so these stay hidden there) ---------- */
+// board: 'all' for the global board, or a group id. Results live on each player, so a group
+// is just who you're compared with: points are worked out among the group's members.
+let groupsApi = null, groups = [], board = load('board') || 'all', joinOffer = null, groupOpen = null, groupFlash = '';
+const currentGroup = () => (board !== 'all' && groups.find(g => g.id === board)) || null;
+function boardPlayers(){
+  const g = currentGroup(); if(!g || demo) return players;
+  const ids = new Set(g.members.map(m => m.id));
+  return Object.fromEntries(Object.entries(players).filter(([id]) => ids.has(id)));
+}
+function pickBoard(id){ board = id; store('board', id); viewing = null; }
+async function loadGroups(){
+  if(!groupsApi || !uid) return;
+  try{
+    groups = await groupsApi.list();
+    if(board !== 'all' && !groups.some(g => g.id === board)) pickBoard('all');
+  }catch(e){}
+}
+
+// Invite links look like …/?join=K7Q2MXH4PA. Keep the code until it's used: signing in by
+// email reloads the page without it.
+const JOIN_IN_URL = (location.search.match(/[?&]join=([A-Za-z0-9]{4,16})/) || [])[1];
+if(JOIN_IN_URL){ store('joinCode', JOIN_IN_URL.toUpperCase()); history.replaceState(null, '', location.pathname); }
+async function offerJoin(){
+  const code = load('joinCode'); if(!code || !groupsApi) return;
+  let p; try{ p = await groupsApi.preview(code); }catch(e){ return; }
+  if(!p){ joinOffer = {bad: true}; return; }
+  if(p.member){ store('joinCode'); joinOffer = null; pickBoard(p.id); return; }
+  joinOffer = {code, ...p};
+}
+function renderJoin(){
+  const c = $('joinCard'), o = joinOffer;
+  c.hidden = !o || !!page || demo; if(c.hidden) return;
+  const dismiss = () => { store('joinCode'); joinOffer = null; render(); };
+  if(o.bad){
+    c.innerHTML = `<div class="row between"><div class="meta">That invite link doesn't work anymore. Ask for a new one.</div><button class="btn ghost" id="joinNo">OK</button></div>`;
+  } else if(!uid){
+    c.innerHTML = `<h2>You're invited to ${esc(o.name)}</h2><div class="meta">${o.members} player${o.members===1?'':'s'}. Sign in at the bottom of the page and you can join.</div>`;
+  } else {
+    c.innerHTML = `<h2>Join ${esc(o.name)}?</h2><div class="meta">${o.members} player${o.members===1?'':'s'}. You'll still be on the global board too.</div>
+      <div class="row" style="margin-top:12px"><button class="btn grow" id="joinYes">Join group</button><button class="btn ghost" id="joinNo">No thanks</button></div><div class="hint" id="joinMsg"></div>`;
+    $('joinYes').onclick = async () => {
+      $('joinYes').disabled = true;
+      try{ const g = await groupsApi.join(o.code); store('joinCode'); joinOffer = null; await loadGroups(); pickBoard(g.id); render(); }
+      catch(e){ $('joinMsg').textContent = e.message || "Couldn't join, try again."; $('joinMsg').style.color = 'var(--warm)'; $('joinYes').disabled = false; }
+    };
+  }
+  if($('joinNo')) $('joinNo').onclick = dismiss;
+}
+// Board picker above the tabs: Everyone, each group, and a shortcut to start one.
+function renderBoards(){
+  const bar = $('boardBar'), show = !page && !demo && !!groupsApi && !!uid;
+  bar.hidden = !show; if(!show) return;
+  bar.innerHTML = [{id: 'all', name: 'Everyone'}, ...groups].map(g =>
+    `<button class="chip ${board === g.id ? 'on' : ''}" data-board="${esc(g.id)}">${esc(g.name)}</button>`).join('')
+    + `<button class="chip add" id="boardAdd">+ ${groups.length ? 'Group' : 'Start a group'}</button>`;
+  bar.querySelectorAll('[data-board]').forEach(b => b.onclick = () => { pickBoard(b.dataset.board); render(); });
+  $('boardAdd').onclick = () => { page = 'profile'; window.scrollTo(0,0); render(); setTimeout(() => $('groupName') && $('groupName').focus(), 0); };
+}
+
+const inviteLink = g => location.origin + location.pathname + '?join=' + g.code;
+async function shareInvite(g){
+  const url = inviteLink(g), text = `Join my trivialRANKS group "${g.name}": ${url}`;
+  if(matchMedia('(pointer:coarse)').matches && navigator.share){
+    try{ await navigator.share({text}); return; }catch(e){ if(e && e.name === 'AbortError') return; }
+  }
+  try{ await navigator.clipboard.writeText(url); say('Invite link copied. Anyone with it can join.'); }
+  catch(e){ say('Copy this link to invite people: ' + url); }
+}
+function say(text, warn){ const m = $('groupMsg'); if(m){ m.textContent = text; m.style.color = warn ? 'var(--warm)' : ''; } }
+// Runs a group change, reloads the list, and shows any error from the database (already worded for people).
+async function groupAction(fn, done){
+  say('Working…');
+  try{ const r = await fn(); await loadGroups(); if(done) done(r); render(); if(groupFlash){ say(groupFlash); groupFlash = ''; } }
+  catch(e){ say((e && e.message) || 'Something went wrong. Try again.', true); }
+}
+
+function groupsCard(){
+  if(demo) return `<div class="card"><h2>Groups</h2><div class="list"><div class="li"><div class="grow name">${esc(DEMO_GROUP)} (sample)</div></div></div></div>`;
+  if(!groupsApi) return `<div class="card"><h2>Groups</h2><div class="hint" style="margin-top:0">Groups are on the hosted site.</div></div>`;
+  if(!uid) return `<div class="card"><h2>Groups</h2><div class="hint" style="margin-top:0">Sign in to start or join a group.</div></div>`;
+  return `<div class="card"><h2>Groups</h2>
+    ${groups.length ? `<div class="list">` + groups.map(g => `<div class="li"><div class="grow"><div class="name">${esc(g.name)}</div>
+        <div class="sub">${g.members.length} player${g.members.length===1?'':'s'}${g.role === 'owner' ? ' · you run it' : ''}</div></div>
+        <button class="chip" data-invite="${esc(g.id)}">Invite</button><button class="chip" data-manage="${esc(g.id)}" style="background:var(--chip);color:var(--muted)">Manage</button></div>`).join('') + `</div>` : ''}
+    <div class="row namebox" style="margin-top:${groups.length ? 12 : 0}px"><input id="groupName" maxlength="40" placeholder="New group name, e.g. Trivia Night"><button class="btn" id="groupCreate">Create</button></div>
+    <div class="hint" id="groupMsg">${groups.length ? '' : 'Start a group and share its invite link. '}Everyone is still on the global board too.</div></div>`;
+}
+function renderGroup(){
+  const g = groups.find(x => x.id === groupOpen);
+  if(!g) return backBar('Group') + `<div class="card"><div class="empty">You're not in this group anymore.</div></div>`;
+  const owner = g.role === 'owner', alone = g.members.length === 1;
+  return backBar(esc(g.name)) + `
+  <div class="card"><h2>Invite people</h2>
+    <input readonly value="${esc(inviteLink(g))}" onclick="this.select()" style="width:100%;border:1px solid var(--line);border-radius:10px;padding:9px 11px;font:13px ui-monospace,Menlo,monospace;background:var(--field);color:var(--ink)">
+    <div class="row" style="margin-top:10px;gap:8px"><button class="btn grow" id="gShare">Share invite link</button>${owner ? '<button class="btn ghost" id="gReset">New link</button>' : ''}</div>
+    <div class="hint" id="groupMsg">Anyone with the link can join.${owner ? ' A new link stops the old one working.' : ''}</div></div>
+  <div class="card"><h2>Players · ${g.members.length}</h2><div class="list">` + g.members.map(m => `
+    <div class="li ${m.id===uid?'me':''}"><div class="grow"><div class="name">${esc(players[m.id] ? nameOf(m.id) : 'New player')}</div>
+      <div class="sub">${m.role === 'owner' ? 'Runs the group · ' : ''}joined ${new Date(m.joinedAt).toLocaleDateString(undefined,{month:'short',day:'numeric'})}</div></div>
+      ${owner && m.id !== uid ? `<button class="chip" data-remove="${esc(m.id)}" style="background:var(--warm-soft);color:var(--warm)">Remove</button>` : ''}</div>`).join('') + `</div></div>
+  ${owner ? `<div class="card"><h2>Rename</h2><div class="row namebox"><input id="gName" maxlength="40" value="${esc(g.name)}"><button class="btn" id="gRename">Save</button></div></div>` : ''}
+  <div class="card"><button class="btn ghost" id="gLeave" style="width:100%;color:var(--warm);border-color:var(--warm)">Leave group</button>
+    <div class="hint">${alone ? "You're the only player, so leaving deletes the group." : owner ? 'If you leave, the longest-standing player takes over the group.' : 'You can rejoin with an invite link.'}</div></div>`;
+}
+function wireGroups(){
+  const on = (id, fn) => { if($(id)) $(id).onclick = fn; };
+  on('groupCreate', () => {
+    const name = $('groupName').value.trim(); if(!name) return $('groupName').focus();
+    groupAction(() => groupsApi.create(name), g => { pickBoard(g.id); groupOpen = g.id; page = 'group'; groupFlash = 'Group created. Share the link to invite people.'; });
+  });
+  if($('groupName')) $('groupName').onkeydown = e => { if(e.key === 'Enter') $('groupCreate').click(); };
+  document.querySelectorAll('[data-invite]').forEach(b => b.onclick = () => shareInvite(groups.find(g => g.id === b.dataset.invite)));
+  document.querySelectorAll('[data-manage]').forEach(b => b.onclick = () => { groupOpen = b.dataset.manage; page = 'group'; window.scrollTo(0,0); render(); });
+  const g = page === 'group' && groups.find(x => x.id === groupOpen); if(!g) return;
+  on('gShare', () => shareInvite(g));
+  on('gReset', () => { if(confirm('Make a new invite link? The current link will stop working.')) groupAction(() => groupsApi.resetCode(g.id), () => { groupFlash = 'New link ready. The old one no longer works.'; }); });
+  on('gRename', () => groupAction(() => groupsApi.rename(g.id, $('gName').value), () => { groupFlash = 'Renamed.'; }));
+  on('gLeave', () => { if(confirm(`Leave ${g.name}?`)) groupAction(() => groupsApi.leave(g.id), () => { page = 'profile'; if(board === g.id) pickBoard('all'); }); });
+  document.querySelectorAll('[data-remove]').forEach(b => b.onclick = () => {
+    const id = b.dataset.remove; if(confirm(`Remove ${players[id] ? nameOf(id) : 'this player'} from ${g.name}?`)) groupAction(() => groupsApi.remove(g.id, id));
+  });
 }
 
 /* ---------- Connect to the shared board ---------- */
@@ -845,8 +937,11 @@ render();
   if(!window.claude || !window.claude.use){ setConn('Not connected', false); return; }
   try{ user = await window.claude.use('user'); }catch(e){}
   try{ db = await window.claude.use('db'); }catch(e){}
+  try{ groupsApi = await window.claude.use('groups'); }catch(e){}
   if(user){ try{ uid = await user.id(); }catch(e){} }
+  await offerJoin();
   if(!db || !uid){ setConn('Sign in to save', true); render(); return; }
+  await loadGroups();
   const timer = setTimeout(() => setConn('Still connecting…', true), 10000);
   db.collection('players').onSnapshot(async snap => {
     const fresh = {}; snap.docs.forEach(d => { if(d.exists) fresh[d.id] = d.data(); });
@@ -855,7 +950,7 @@ render();
     await resolveNames(); render();
   }, () => { clearTimeout(timer); setConn('Board unavailable', true); });
 })();
-document.addEventListener('visibilitychange', () => { if(!document.hidden) render(); });
+document.addEventListener('visibilitychange', async () => { if(document.hidden) return; render(); await loadGroups(); render(); });
 </script>
 </body>
 </html>

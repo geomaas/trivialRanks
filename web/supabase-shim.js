@@ -7,9 +7,17 @@
 //     set() replaces the row; update() deep-merges nested objects and rejects
 //     {code:'invalid_argument'} when the row doesn't exist.
 //   user.id()  the signed-in Supabase user id, or null when signed out
+// Plus `groups`, which claude.ai doesn't have (the page hides groups when use('groups') is null).
 // It also adds a small sign-in bar (email link) at the bottom of the page.
 (function(){
   const cfg = window.TRIVIAL_CONFIG || {};
+  // A sign-in link that failed comes back with the reason in the address (#error_description=…);
+  // capture it before supabase-js tidies the address, so the sign-in bar can show it.
+  const linkError = (() => {
+    const p = new URLSearchParams(location.hash.slice(1) + '&' + location.search.slice(1));
+    const d = p.get('error_description') || p.get('error');
+    return d ? {text: d.replace(/\+/g, ' '), code: p.get('error_code') || ''} : null;
+  })();
   const sb = window.supabase && cfg.url && cfg.key
     ? window.supabase.createClient(cfg.url, cfg.key, {auth: {flowType: 'implicit', persistSession: true, autoRefreshToken: true, detectSessionInUrl: true}})
     : null;
@@ -115,11 +123,35 @@
     search: async () => [],
   });
 
+  // Groups (supabase/groups.sql). Every change goes through a database function, which checks
+  // membership and ownership; errors come back with a message fit to show.
+  const rpc = async (fn, args) => { const {data, error} = await sb.rpc(fn, args); if(error) throw fail(error); return data; };
+  const groups = sb && Object.freeze({
+    // The signed-in player's groups: [{id, name, code, role, members: [{id, role, joinedAt}]}]
+    async list(){
+      const s = await sessionReady; if(!s) return [];
+      const {data, error} = await sb.from('groups').select('id, name, invite_code, created_at, group_members(player_id, role, joined_at)').order('created_at');
+      if(error) throw fail(error);
+      return (data || []).map(g => {
+        const members = (g.group_members || []).map(m => ({id: m.player_id, role: m.role, joinedAt: m.joined_at}))
+          .sort((a,b) => a.joinedAt < b.joinedAt ? -1 : 1);
+        return {id: g.id, name: g.name, code: g.invite_code, members, role: (members.find(m => m.id === s.user.id) || {}).role || 'member'};
+      });
+    },
+    preview: code => rpc('preview_group', {p_code: code}),       // {id, name, members, member} or null
+    create: name => rpc('create_group', {p_name: name}),         // {id, name, code}
+    join: code => rpc('join_group', {p_code: code}),             // {id, name}
+    leave: id => rpc('leave_group', {p_group: id}),
+    rename: (id, name) => rpc('rename_group', {p_group: id, p_name: name}),
+    resetCode: id => rpc('reset_invite', {p_group: id}),         // the new code
+    remove: (id, playerId) => rpc('remove_member', {p_group: id, p_player: playerId}),
+  });
+
   window.claude = Object.freeze({
     use: async name => {
       if(!sb) return null;
       await sessionReady;
-      return name === 'db' ? db : name === 'user' ? user : null;
+      return name === 'db' ? db : name === 'user' ? user : name === 'groups' ? groups : null;
     },
   });
 
@@ -141,6 +173,13 @@
         <button type="submit" style="padding:8px 14px;border:0;border-radius:8px;background:var(--accent,#2f5d50);color:#fff;font-weight:600;font-size:14px;font-family:inherit;cursor:pointer">Email me a link</button>
         <div id="authMsg" style="flex-basis:100%;font-size:12.5px;color:var(--muted,#666)"></div></form>`;
     const form = el.querySelector('#authForm'), msg = el.querySelector('#authMsg'), btn = form.querySelector('button');
+    if(linkError){
+      msg.style.color = 'var(--warm,#b4532a)';
+      msg.textContent = linkError.code === 'otp_expired'
+        ? 'That sign-in link has expired or was already used. Send yourself a new one.'
+        : 'Sign-in failed: ' + linkError.text;
+      history.replaceState(null, '', location.pathname);
+    }
     form.onsubmit = async ev => {
       ev.preventDefault();
       const email = el.querySelector('#authEmail').value.trim();
