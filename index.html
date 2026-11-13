@@ -413,7 +413,10 @@ function dayList(row, byGame, canRemove){
 
 /* ---------- Share the day's standings ---------- */
 // Set this once the site has a public address; it's added to the end of the share text.
-const SHARE_URL = '';
+const SHARE_URL = 'https://trivialranks.com';
+// Links people are sent go to the public site, except when testing on this computer or home network.
+const LOCAL_HOST = /^(localhost|127\.|10\.|192\.168\.|\[::1\])/.test(location.hostname) || location.protocol === 'file:';
+const SITE = (!LOCAL_HOST && SHARE_URL) || location.origin + location.pathname;
 const MEDALS = ['🥇','🥈','🥉'];
 const SHARE_TOP = 10;
 // Builds share text for the day's standings, like the result text the games themselves share.
@@ -427,7 +430,9 @@ function shareText(rows, places, byGame, day){
   else if(rows.length > SHARE_TOP) lines.push(`…and ${rows.length - SHARE_TOP} more`);
   const top = Object.entries(byGame).sort((a,b) => b[1].length - a[1].length)[0];
   if(top && top[1].length > 1) lines.push('', `Most played: ${G[top[0]].name} (${top[1].length})`);
-  if(SHARE_URL) lines.push('', SHARE_URL);
+  // On a group board, the link joins the group; otherwise it opens the site.
+  if(g && g.code) lines.push('', `Join ${g.name} on trivialranks.com:`, inviteLink(g));
+  else lines.push('', `Play at ${SITE}`);
   return lines.join('\n');
 }
 async function shareStandings(text){
@@ -919,7 +924,7 @@ function renderBoards(){
   $('boardAdd').onclick = () => { page = 'profile'; window.scrollTo(0,0); render(); setTimeout(() => $('groupName') && $('groupName').focus(), 0); };
 }
 
-const inviteLink = g => location.origin + location.pathname + '?join=' + g.code;
+const inviteLink = g => SITE + (/(\/|\.html)$/.test(SITE) ? '' : '/') + '?join=' + g.code;
 async function shareInvite(g){
   const url = inviteLink(g), text = `Join my trivialRANKS group "${g.name}": ${url}`;
   if(matchMedia('(pointer:coarse)').matches && navigator.share){
