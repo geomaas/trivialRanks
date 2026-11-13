@@ -8,7 +8,7 @@
 //     {code:'invalid_argument'} when the row doesn't exist.
 //   user.id()  the signed-in Supabase user id, or null when signed out
 // Plus `groups`, which claude.ai doesn't have (the page hides groups when use('groups') is null).
-// It also adds a small sign-in bar (email link) at the bottom of the page.
+// It also adds a small sign-in bar (emailed code, or the email's link) at the bottom of the page.
 (function(){
   const cfg = window.TRIVIAL_CONFIG || {};
   // A sign-in link that failed comes back with the reason in the address (#error_description=…);
@@ -161,39 +161,87 @@
     el.id = 'authBar';
     el.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:50;background:var(--card,#fff);border-top:1px solid var(--line,#ddd);padding:10px 16px calc(10px + env(safe-area-inset-bottom));font:14px Inter,system-ui,sans-serif;color:var(--ink,#222)';
     document.body.appendChild(el);
-    document.body.style.paddingBottom = '72px';
+    document.body.style.paddingBottom = '96px';
     return el;
   }
+  // Sign-in is two steps on the same page: enter your email, then the code from the email.
+  // The email's link still works too, for anyone who taps it instead.
+  // (The code only appears if the Supabase email templates include {{ .Token }}; see the README.)
+  const PENDING = 'authPending', PENDING_MS = 15 * 60 * 1000;
+  const pendingEmail = () => { try{ const p = JSON.parse(sessionStorage.getItem(PENDING)); return p && Date.now() - p.at < PENDING_MS ? p.email : null; }catch(e){ return null; } };
+  const setPending = email => { try{ email ? sessionStorage.setItem(PENDING, JSON.stringify({email, at: Date.now()})) : sessionStorage.removeItem(PENDING); }catch(e){} };
+  const FIELD = 'padding:8px 10px;border:1px solid var(--line,#ccc);border-radius:8px;background:var(--field,#fff);color:inherit;font:inherit';
+  const BUTTON = 'padding:8px 14px;border:0;border-radius:8px;background:var(--accent,#2f5d50);color:#fff;font-weight:600;font-size:14px;font-family:inherit;cursor:pointer';
+  const LINK = 'border:0;background:none;padding:0;color:var(--accent,#2f5d50);font:inherit;font-weight:600;cursor:pointer;text-decoration:underline';
+  const sendError = error => error.status === 429 ? 'Too many sign-in emails right now. Try again in a little while.' : "Couldn't send the email: " + error.message;
+  const send = email => sb.auth.signInWithOtp({email, options: {emailRedirectTo: location.origin + location.pathname}});
+
   function signedOutBar(){
     const el = bar();
     if(!sb){ el.textContent = 'Saving is unavailable: this copy of the site is missing its database settings.'; return; }
-    el.innerHTML = `<form id="authForm" style="max-width:560px;margin:0 auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <span style="font-weight:600">Sign in to post scores</span>
-        <input id="authEmail" type="email" required autocomplete="email" placeholder="you@example.com" style="flex:1;min-width:160px;padding:8px 10px;border:1px solid var(--line,#ccc);border-radius:8px;background:var(--field,#fff);color:inherit;font:inherit">
-        <button type="submit" style="padding:8px 14px;border:0;border-radius:8px;background:var(--accent,#2f5d50);color:#fff;font-weight:600;font-size:14px;font-family:inherit;cursor:pointer">Email me a link</button>
-        <div id="authMsg" style="flex-basis:100%;font-size:12.5px;color:var(--muted,#666)"></div></form>`;
-    const form = el.querySelector('#authForm'), msg = el.querySelector('#authMsg'), btn = form.querySelector('button');
+    el.innerHTML = `<form id="authForm" style="max-width:560px;margin:0 auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap"></form>`;
+    const form = el.querySelector('#authForm');
+    const warn = (msg, text) => { msg.style.color = 'var(--warm,#b4532a)'; msg.textContent = text; };
+
+    function emailStep(note){
+      form.innerHTML = `<span style="font-weight:600">Sign in to post scores</span>
+        <input id="authEmail" type="email" required autocomplete="email" placeholder="you@example.com" style="flex:1;min-width:160px;${FIELD}">
+        <button type="submit" style="${BUTTON}">Email me a code</button>
+        <div id="authMsg" style="flex-basis:100%;font-size:12.5px;color:var(--muted,#666)"></div>`;
+      const msg = form.querySelector('#authMsg'), btn = form.querySelector('button');
+      if(note) warn(msg, note);
+      form.onsubmit = async ev => {
+        ev.preventDefault();
+        const email = form.querySelector('#authEmail').value.trim();
+        if(!email) return;
+        btn.disabled = true; msg.style.color = ''; msg.textContent = 'Sending…';
+        const {error} = await send(email);
+        if(error){ btn.disabled = false; warn(msg, sendError(error)); return; }
+        setPending(email); codeStep(email);
+      };
+    }
+
+    function codeStep(email){
+      form.innerHTML = `<span style="font-weight:600">Enter the code from your email</span>
+        <input id="authCode" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]*" maxlength="12" placeholder="123456" style="width:120px;letter-spacing:2px;${FIELD}">
+        <button type="submit" style="${BUTTON}">Sign in</button>
+        <div style="flex-basis:100%;font-size:12.5px;color:var(--muted,#666)"><span id="authMsg"></span>
+          <button type="button" id="authAgain" style="${LINK}">Send a new code</button> · <button type="button" id="authBack" style="${LINK}">Use a different email</button></div>`;
+      const msg = form.querySelector('#authMsg'), code = form.querySelector('#authCode'), btn = form.querySelector('button[type=submit]');
+      const sentTo = () => { msg.style.color = ''; msg.textContent = `Sent to ${email}. Tapping the link in the email works too. `; };
+      sentTo(); code.focus();
+      form.onsubmit = async ev => {
+        ev.preventDefault();
+        const token = code.value.replace(/\D/g, '');
+        if(token.length < 6){ warn(msg, 'Enter the whole code from the email. '); return; }
+        btn.disabled = true; msg.style.color = ''; msg.textContent = 'Checking… ';
+        const {error} = await sb.auth.verifyOtp({email, token, type: 'email'});
+        if(error){ btn.disabled = false; code.select(); warn(msg, "That code didn't work or has expired. Check it, or send a new one. "); return; }
+        setPending(null);   // signed in: the page reloads itself as this player (see start())
+      };
+      form.querySelector('#authAgain').onclick = async ev => {
+        ev.target.disabled = true; msg.style.color = ''; msg.textContent = 'Sending… ';
+        const {error} = await send(email);
+        ev.target.disabled = false;
+        if(error) warn(msg, sendError(error) + ' '); else { setPending(email); sentTo(); }
+      };
+      form.querySelector('#authBack').onclick = () => { setPending(null); emailStep(); };
+    }
+
+    let note = '';
     if(linkError){
-      msg.style.color = 'var(--warm,#b4532a)';
-      msg.textContent = linkError.code === 'otp_expired'
-        ? 'That sign-in link has expired or was already used. Send yourself a new one.'
+      note = linkError.code === 'otp_expired'
+        ? 'That sign-in link has expired or was already used. Send yourself a new code.'
         : 'Sign-in failed: ' + linkError.text;
       history.replaceState(null, '', location.pathname);
     }
-    form.onsubmit = async ev => {
-      ev.preventDefault();
-      const email = el.querySelector('#authEmail').value.trim();
-      if(!email) return;
-      btn.disabled = true; msg.textContent = 'Sending…';
-      const {error} = await sb.auth.signInWithOtp({email, options: {emailRedirectTo: location.origin + location.pathname}});
-      btn.disabled = false;
-      msg.textContent = error
-        ? (error.status === 429 ? 'Too many sign-in emails right now. Try again in a little while.' : "Couldn't send the link: " + error.message)
-        : 'Check your email and tap the link. It signs you in on the device where you open it.';
-    };
+    // Coming back from the mail app after a reload: go straight to the code box.
+    const waiting = !note && pendingEmail();
+    waiting ? codeStep(waiting) : emailStep(note);
   }
   function signedInBar(session){
     const el = bar();
+    setPending(null);
     el.style.padding = '6px 16px calc(6px + env(safe-area-inset-bottom))';
     document.body.style.paddingBottom = '44px';
     el.innerHTML = `<div style="max-width:560px;margin:0 auto;display:flex;justify-content:space-between;gap:8px;font-size:12.5px;color:var(--muted,#666)">

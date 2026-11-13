@@ -57,7 +57,6 @@
   .meta{color:var(--muted);font-size:13px}
   .badge{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;padding:2px 7px;border-radius:6px;background:var(--accent-soft);color:var(--accent);vertical-align:middle}
   .badge.beta{background:var(--warm-soft);color:var(--warm)}
-  .badge.bonus{background:var(--soft2);color:var(--muted)}
   .cat{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;color:var(--muted)}
   .cat i{width:10px;height:10px;border-radius:50%;display:inline-block}
   nav{display:flex;gap:6px;margin:4px 0 14px;background:var(--chip);padding:4px;border-radius:12px}
@@ -102,6 +101,10 @@
   .track b{position:absolute;top:10px;width:9px;height:9px;border-radius:50%;background:var(--faint);opacity:.6;transform:translate(-50%,-50%)}
   .track b.big{width:16px;height:16px;opacity:1;border:2.5px solid var(--card);box-shadow:0 0 0 1px var(--line);z-index:1}
   .track em{position:absolute;top:-7px;transform:translateX(-50%);font:700 9.5px/1 Inter,sans-serif;font-style:normal;color:var(--muted)}
+  .who{margin-top:6px;padding:6px 10px;background:var(--field);border:1px solid var(--line);border-radius:10px;font-size:13px}
+  .who .row{padding:2px 0}
+  .who .on{font-weight:700}
+  .linkish{border:0;background:none;padding:0;font:inherit;color:var(--warm);cursor:pointer;text-decoration:underline}
   .boards{display:flex;gap:6px;overflow-x:auto;margin:0 0 10px;padding-bottom:2px;scrollbar-width:none}
   .boards .chip{flex:none;background:var(--chip);color:var(--muted);padding:6px 12px}
   .boards .chip.on{background:var(--accent);color:#fff}
@@ -139,8 +142,9 @@
       <span class="status" id="conn">Connecting…</span>
     </div>
     <div id="pasteBody">
-      <textarea id="pasteBox" placeholder="Tap Share in the game, come back, then long-press here and choose Paste."></textarea>
-      <div class="hint">Paste from any game; the board works out which one it is.</div>
+      <button class="btn" id="pasteBtn" hidden style="width:100%;margin-bottom:8px">Paste result</button>
+      <textarea id="pasteBox" placeholder="Tap Share in the game, come back, and paste the result here."></textarea>
+      <div class="hint" id="pasteHint">Paste from any game; the board works out which one it is.</div>
     </div>
     <button class="btn ghost" id="pasteOpen" hidden style="width:100%">+ Paste another result</button>
   </div>
@@ -306,22 +310,10 @@ function pctMax(gid, s){
   return Math.max(0, Math.min(100, Math.round(v)));
 }
 function better(g, a, b){ return G[g].higher ? a > b : a < b; }
-// Percentile among everyone who played this game that day: 100 = best, 0 = worst.
-function pct(entries, g, s){
-  const n = entries.length; if(n <= 1) return 100;
-  let worse = 0, equal = 0;
-  for(const e of entries){ if(better(g, s, e)) worse++; else if(e === s) equal++; }
-  return Math.round((worse + 0.5*(equal-1)) / (n-1) * 100);
-}
-// Points per game: your percentile among everyone who played it today (100 = best).
-// With fewer than 3 players a percentile means little, so it falls back to % of the best possible score.
-const MIN_FOR_PCT = 3;
-function points(gid, score, byGame){
-  const list = (byGame[gid] || []).map(x => x.e.score);
-  return list.length >= MIN_FOR_PCT ? pct(list, gid, score) : pctMax(gid, score);
-}
-// Scores every player's games for a day. Each game is worth up to 100 points and the day's
-// total is their sum, so playing more games and playing them well both move you up.
+// Points per game: up to 100 for your own score (% of the best possible). They depend only on
+// your own result, so they never change after you play.
+// Scores every player's games for a day. The day's total is the sum of the games' points,
+// so playing more games and playing them well both move you up.
 function dayData(day){
   const pool = boardPlayers(), byGame = {};
   for(const [id,p] of Object.entries(pool)){
@@ -333,15 +325,15 @@ function dayData(day){
     list.sort((a,b) => better(g, a.e.score, b.e.score) ? -1 : better(g, b.e.score, a.e.score) ? 1 : 0);
     placesOf(list, x => x.e.score).forEach((p, i) => list[i].place = p);
   }
-  for(const [g, list] of Object.entries(byGame)) list.forEach(x => x.v = points(g, x.e.score, byGame));
+  for(const [g, list] of Object.entries(byGame)) list.forEach(x => { x.v = x.base = pctMax(g, x.e.score); });
   const rows = [];
   for(const id of Object.keys(pool)){
     const r = (pool[id].results||{})[day] || {};
     const games = {}; let total = 0;
     for(const g of GAMES){
       const e = r[g.id]; if(!e) continue;
-      const list = byGame[g.id], mineHere = list.find(x => x.id === id), v = points(g.id, e.score, byGame);
-      games[g.id] = {v, e, place: mineHere.place, of: list.length}; total += v;
+      const list = byGame[g.id], x = list.find(y => y.id === id);
+      games[g.id] = {v: x.v, base: x.base, e, place: x.place, of: list.length}; total += x.v;
     }
     const played = Object.keys(games).length;
     if(played) rows.push({id, games, played, total, avg: Math.round(total / played)});
@@ -374,17 +366,22 @@ function stackLegend(rows){
   const cats = CATS.filter(c => rows.some(r => GAMES.some(g => g.cat === c.id && r.games[g.id])));
   return cats.length ? `<div class="legend">${cats.map(c => catTag(c.id)).join('')}</div>` : '';
 }
-// One game as a 0-100 track with a dot for everyone who played it; the viewed player's dot is big.
-// Players with the same points share one dot, with a count above it.
+// One game as a track from worst to best possible score, with a dot for everyone who played it;
+// the viewed player's dot is big. Players with the same score share one dot, with a count above it.
 function strip(gid, row, byGame){
   const list = byGame[gid] || [], g = G[gid], spots = {};
-  for(const x of list) (spots[x.v] ||= []).push(x);
-  const dots = Object.entries(spots).map(([v, xs]) => {
-    const big = xs.some(x => x.id === row.id), label = xs.map(x => `${nameOf(x.id)}: ${x.e.display}`).join(', ');
-    return `<b class="${big ? 'big' : ''}" style="left:${v}%;${big ? 'background:' + gameColor(gid) : ''}" title="${esc(label)} · ${v} pts"></b>`
-      + (xs.length > 1 ? `<em style="left:${v}%">${xs.length}</em>` : '');
+  for(const x of list) (spots[x.base] ||= []).push(x);
+  const dots = Object.entries(spots).map(([at, xs]) => {
+    const big = xs.some(x => x.id === row.id);
+    return `<b class="${big ? 'big' : ''}" style="left:${at}%;${big ? 'background:' + gameColor(gid) : ''}"></b>`
+      + (xs.length > 1 ? `<em style="left:${at}%">${xs.length}</em>` : '');
   }).join('');
-  return `<div class="track" role="img" aria-label="${esc(g.name)}: ${row.games[gid].v} of 100 points, ${list.length} player${list.length===1?'':'s'}">${dots}</div>`;
+  return `<div class="track" aria-hidden="true">${dots}</div>`;
+}
+// Everyone's result on one game, best first. Shown when a game's row is tapped.
+function stripDetail(gid, row, byGame){
+  return `<div class="who">` + (byGame[gid] || []).map(x =>
+    `<div class="row between ${x.id === row.id ? 'on' : ''}"><span>${x.place}. ${esc(nameOf(x.id))}${x.id === uid ? ' (you)' : ''}</span><span>${esc(x.e.display)} · ${x.v} pts</span></div>`).join('') + `</div>`;
 }
 // One dot per category: filled when the player played a game in it that day.
 function dots(row){
@@ -398,16 +395,19 @@ function namesOf(ids, max = 2){
   const ns = ids.map(id => id === uid ? 'you' : nameOf(id));
   return ns.slice(0, max).join(', ') + (ns.length > max ? ` +${ns.length - max}` : '');
 }
-// The games one player logged that day, in game order: result, points, and where they sit among everyone who played it.
-function dayList(row, byGame){
+// The games one player logged that day, in game order: result, points, and where they sit among
+// everyone who played it. Tapping a game lists every player's result. canRemove adds a Remove link.
+let openStrip = null;
+function dayList(row, byGame, canRemove){
   const gs = GAMES.filter(g => row.games[g.id]);
-  return `<div class="row between sub" style="margin:10px 0 0"><span>Each dot is a player</span><span>worst ← → best</span></div>
-    <div class="list">` + gs.map(g => { const x = row.games[g.id];
-    return `<div class="li" style="display:block">
-      <div class="row between"><a class="name spoke" href="${g.url}" target="_blank" rel="noopener" data-game="${g.id}" style="color:${gameColor(g.id)};text-decoration:none">${esc(g.name)} ↗</a>
+  return `<div class="row between sub" style="margin:10px 0 0"><span>Each dot is a player · tap a game for names</span><span>worst ← → best</span></div>
+    <div class="list">` + gs.map(g => { const x = row.games[g.id], open = openStrip === g.id;
+    return `<div class="li click" style="display:block" data-strip="${g.id}" role="button" aria-expanded="${open}">
+      <div class="row between"><span class="name" style="color:${gameColor(g.id)}">${esc(g.name)}</span>
         <div><span class="score">${esc(x.e.display)}</span><span class="sub"> · ${x.v} pts</span></div></div>
       ${strip(g.id, row, byGame)}
-      <div class="sub">${x.of > 1 ? `${ord(x.place)} of ${x.of}` : 'only player so far'}</div></div>`;
+      <div class="row between sub"><span>${x.of > 1 ? `${ord(x.place)} of ${x.of}` : 'only player so far'}</span><span>${open ? 'Hide ▴' : 'Who ▾'}</span></div>
+      ${open ? stripDetail(g.id, row, byGame) + `<div class="row between sub" style="margin-top:6px"><a class="spoke" href="${g.url}" target="_blank" rel="noopener" data-game="${g.id}" style="color:inherit">Open ${esc(g.name)} ↗</a>${canRemove ? `<button class="linkish" data-unlog="${g.id}">Remove my result</button>` : ''}</div>` : ''}</div>`;
   }).join('') + `</div>`;
 }
 
@@ -446,10 +446,56 @@ const box = $('pasteBox');
 box.addEventListener('paste', () => setTimeout(() => handle(box.value), 0));
 box.addEventListener('input', () => { clearTimeout(box._t); box._t = setTimeout(() => handle(box.value), 600); });
 function handle(text){
+  if(saving) return;
   const r = parseResult(text);
   if(!r){ hideConfirm(); return; }
   pending = r.error ? null : r;
+  // Results we read reliably save straight away, with Undo. Anything else asks first.
+  if(pending && r.verified && ready && !demo && !problemWith(r)){ $('confirm')._raw = text; save(); return; }
   showConfirm(r, text);
+}
+// The one-tap Paste button, where the browser lets a page read the clipboard on a tap.
+if(navigator.clipboard && navigator.clipboard.readText){
+  $('pasteBtn').hidden = false;
+  $('pasteBtn').onclick = async () => {
+    const hint = msg => { $('pasteHint').textContent = msg; };
+    try{
+      const text = await navigator.clipboard.readText();
+      if(text && text.trim()){ box.value = text; handle(text); }
+      else hint("Nothing copied yet. Tap Share in a game first, then come back.");
+    }catch(e){ box.focus(); hint("Couldn't read what you copied. Long-press the box below and choose Paste."); }
+  };
+}
+// Why a result can't be logged, or '' if it can.
+function problemWith(r){
+  const g = G[r.game], t = today(), y = addDays(t,-1);
+  if(r.day > t) return "This puzzle is dated in the future, so it can't be logged.";
+  if(r.day < y) return 'Results can only be logged within a day of the puzzle.';
+  if(me() && me().results && me().results[r.day] && me().results[r.day][r.game])
+    return `You already logged ${g.name} for ${r.day === t ? 'today. To change it, open it under Your day and remove it first.' : 'yesterday.'}`;
+  return '';
+}
+// Takes one result off the signed-in player's row (Undo, and Remove under Your day).
+async function removeResult(day, gid){
+  if(!ready || demo) return;
+  const snap = await db.doc('players/'+uid).get();
+  const p = snap.exists ? snap.data() : null;
+  if(!p || !p.results || !p.results[day] || !p.results[day][gid]) return;
+  delete p.results[day][gid];
+  if(!Object.keys(p.results[day]).length) delete p.results[day];
+  await db.doc('players/'+uid).set(p);
+  players[uid] = p; openStrip = null; render();
+}
+function showSaved(r){
+  const c = $('confirm'); c.hidden = false; c.className = 'card confirm'; c.style.borderLeft = `6px solid ${gameColor(r.game)}`;
+  c.innerHTML = `<div class="row between"><div><div class="name">Saved · ${esc(G[r.game].name)} ${esc(r.display)}</div>
+      <div class="sub">${r.day === today() ? 'Today' : 'Yesterday'}${r.verified ? '' : ' · check the score looks right'}</div></div>
+    <button class="btn ghost" id="cUndo">Undo</button></div>`;
+  $('cUndo').onclick = async () => {
+    $('cUndo').disabled = true;
+    try{ await removeResult(r.day, r.game); hideConfirm(); }catch(e){ $('cUndo').disabled = false; $('cUndo').textContent = "Couldn't undo, try again"; }
+  };
+  clearTimeout(c._t); c._t = setTimeout(() => { if($('cUndo')) hideConfirm(); }, 15000);
 }
 function hideConfirm(){ $('confirm').hidden = true; pending = null; }
 function showConfirm(r, raw){
@@ -460,13 +506,12 @@ function showConfirm(r, raw){
       <div class="row" style="margin-top:12px"><button class="btn ghost" id="cClear">Clear</button></div>`;
     $('cClear').onclick = clearPaste; return;
   }
-  const g = G[r.game], t = today(), y = addDays(t,-1);
-  let problem = '';
-  if(r.day > t) problem = "This puzzle is dated in the future, so it can't be logged.";
-  else if(r.day < y) problem = 'Results can only be logged within a day of the puzzle.';
-  else if(me() && me().results && me().results[r.day] && me().results[r.day][r.game]) problem = `You already logged ${g.name} for ${r.day === t ? 'today' : 'yesterday'}. Results are locked once saved.`;
+  const g = G[r.game], t = today(), problem = problemWith(r);
+  // Signed out on the hosted site: keep the result and save it right after sign-in.
+  const signIn = !uid && !demo && $('authForm');
   const canSave = !problem && ready && !saving;
-  const others = ((dayData(r.day).byGame[r.game]) || []).filter(x => x.id !== uid).length;
+  const field = ((dayData(r.day).byGame[r.game]) || []).filter(x => x.id !== uid), others = field.length;
+  const place = 1 + field.filter(x => better(r.game, x.e.score, r.score)).length;
   c.className = 'card confirm' + (problem ? ' bad' : '');
   c.style.borderLeft = `6px solid ${gameColor(r.game)}`;
   c.innerHTML = `
@@ -475,16 +520,21 @@ function showConfirm(r, raw){
       <span class="badge ${r.verified?'':'beta'}">${r.verified?'Parsed':'Beta parser'}</span>
     </div>
     <div class="big" style="margin:8px 0 2px">${esc(r.display)}</div>
-    <div class="meta">${r.day === t ? 'Today' : 'Yesterday'} · ${pctMax(r.game, r.score)}% of max · ${others ? others + (others === 1 ? ' other player' : ' others') + ' played it' : 'first to play it'}${r.rounds && r.rounds.length ? ' · rounds ' + r.rounds.join(', ') : ''}</div>
+    <div class="meta">${r.day === t ? 'Today' : 'Yesterday'} · ${pctMax(r.game, r.score)}% of max · ${others ? `${ord(place)} of ${others + 1} so far` : 'first to play it'}${r.rounds && r.rounds.length ? ' · rounds ' + r.rounds.join(', ') : ''}</div>
     ${!r.verified ? '<div class="hint">We haven\'t seen this game\'s share text yet, so check the score looks right.</div>' : ''}
     ${problem ? `<div class="hint" style="color:var(--warm)">${esc(problem)}</div>` : ''}
-    ${!ready ? '<div class="hint" style="color:var(--warm)">Saving needs the shared board, which isn\'t connected yet.</div>' : ''}
+    ${signIn ? '<div class="hint" id="cSignHint">Sign in to put this on the board. It will be saved as soon as you\'re in.</div>' : !ready ? '<div class="hint" style="color:var(--warm)">Saving needs the shared board, which isn\'t connected yet.</div>' : ''}
     <div class="row" style="margin-top:12px">
-      <button class="btn grow" id="cSave" ${canSave?'':'disabled'}>Save to board</button>
+      <button class="btn grow" id="cSave" ${canSave || (signIn && !problem) ? '' : 'disabled'}>${signIn ? 'Sign in to save' : 'Save to board'}</button>
       <button class="btn ghost" id="cClear">Clear</button>
     </div>`;
   c._raw = raw;
-  $('cSave').onclick = save; $('cClear').onclick = clearPaste;
+  $('cSave').onclick = signIn ? () => {
+    store('pendingPaste', {text: raw, at: Date.now()});
+    $('cSignHint').textContent = 'Enter your email at the bottom of the page. This result is kept and saves once you\'re signed in.';
+    const field = $('authEmail') || $('authCode'); if(field){ field.scrollIntoView({block: 'center'}); field.focus(); }
+  } : save;
+  $('cClear').onclick = () => { store('pendingPaste'); clearPaste(); };
 }
 function clearPaste(){ box.value=''; hideConfirm(); }
 async function save(){
@@ -493,13 +543,14 @@ async function save(){
   const entry = {score:r.score, display:r.display, puzzle:r.puzzle||'', raw, at:new Date().toISOString(), verified:!!r.verified};
   const launched = load('launch:'+r.game+':'+r.day); if(launched) entry.launchedAt = launched;
   if(r.rounds && r.rounds.length) entry.rounds = r.rounds;
-  saving = true; $('cSave').disabled = true; $('cSave').textContent = 'Saving…';
+  saving = true; if($('cSave')){ $('cSave').disabled = true; $('cSave').textContent = 'Saving…'; }
   try{
     const ref = db.doc('players/'+uid);
     if(me()) await ref.update({results:{[r.day]:{[r.game]:entry}}});
     else await ref.set({name: load('name') || '', results:{[r.day]:{[r.game]:entry}}});
-    box.value=''; hideConfirm(); viewing = uid; switchTab('today');
+    box.value=''; hideConfirm(); viewing = uid; pasteOpen = false; switchTab('today'); showSaved(r);
   }catch(e){
+    pending = r; showConfirm(r, raw);   // the straight-to-save path has no card yet
     $('cSave').textContent = e && e.code === 'invalid_argument' ? "You can view this board but not post to it" : 'Couldn\'t save, try again';
     $('cSave').disabled = !(e && e.code !== 'invalid_argument');
   }finally{ saving = false; }
@@ -741,7 +792,7 @@ function render(){
         <div style="text-align:right"><div class="score">${r.total}<span class="sub"> pts</span></div><div class="sub">${r.played} game${r.played===1?'':'s'} · avg ${r.avg}</div></div>
       </div>`).join('') + `</div>` + stackLegend(rows)
     : `<div class="empty">No results yet today. Play a game and paste your result above.</div>`;
-  h += `<div class="hint">Ranked by total points. Each game is worth up to 100: your place among everyone who played it today (100 = best), or % of the best possible score when fewer than ${MIN_FOR_PCT} played it. Bars show each player's total, split by game. Tap a player to see their day.</div></div>`;
+  h += `<div class="hint">Ranked by total points. Each game scores up to 100 for how well you did, so your points never change after you play. Bars show each player's total, split by game. Tap a player to see their day.</div></div>`;
 
   const todo = GAMES.filter(g => byGame[g.id] && !byGame[g.id].some(x => x.id === uid))
     .sort((a,b) => byGame[b.id].length - byGame[a.id].length);
@@ -758,11 +809,19 @@ function render(){
     h += `<div class="card">
       <div class="row between"><h2 style="margin:0">${vr.id === uid ? 'Your day' : esc(nameOf(vr.id)) + "'s day"}</h2>${vr.id !== uid && rows.find(r => r.id === uid) ? '<button class="chip" id="backToMe">← Back to you</button>' : ''}</div>
       <div class="sub" style="margin-top:2px">${ord(place)} of ${rows.length} · ${vr.total} pts from ${vr.played} game${vr.played===1?'':'s'}</div>
-      ${dayList(vr, byGame)}</div>`;
+      ${dayList(vr, byGame, vr.id === uid && ready && !demo)}</div>`;
   }
   $('tab-today').innerHTML = h;
   document.querySelectorAll('[data-view]').forEach(el => el.onclick = () => { viewing = el.dataset.view; render(); });
   if($('backToMe')) $('backToMe').onclick = () => { viewing = uid; render(); };
+  document.querySelectorAll('[data-strip]').forEach(el => el.onclick = ev => {
+    if(ev.target.closest('a, button')) return;   // links and Remove inside an open row keep working
+    openStrip = openStrip === el.dataset.strip ? null : el.dataset.strip; render();
+  });
+  document.querySelectorAll('[data-unlog]').forEach(b => b.onclick = async () => {
+    const gid = b.dataset.unlog; if(!confirm(`Remove your ${G[gid].name} result for today? You can log it again afterwards.`)) return;
+    b.disabled = true; try{ await removeResult(t, gid); }catch(e){ b.disabled = false; b.textContent = "Couldn't remove, try again"; }
+  });
   if($('shareBtn')) $('shareBtn').onclick = () => shareStandings(shareText(rows, places, byGame, t));
 
   /* Games: every game by category, with who has played it today */
@@ -940,14 +999,23 @@ render();
   try{ groupsApi = await window.claude.use('groups'); }catch(e){}
   if(user){ try{ uid = await user.id(); }catch(e){} }
   await offerJoin();
-  if(!db || !uid){ setConn('Sign in to save', true); render(); return; }
-  await loadGroups();
+  if(!db){ setConn('Sign in to save', true); render(); return; }
+  const canPost = !!uid;   // signed-out visitors can still watch the board where the database allows it
+  if(canPost) await loadGroups();
   const timer = setTimeout(() => setConn('Still connecting…', true), 10000);
   db.collection('players').onSnapshot(async snap => {
     const fresh = {}; snap.docs.forEach(d => { if(d.exists) fresh[d.id] = d.data(); });
     if(demo) live.players = fresh; else players = fresh;
-    if(!snap.metadata.fromCache){ clearTimeout(timer); if(demo) live.ready = true; else ready = true; const n = Object.keys(fresh).length; setConn(n + ' player' + (n===1?'':'s')); }
+    const first = canPost && !snap.metadata.fromCache && !(demo ? live.ready : ready);
+    if(!snap.metadata.fromCache){
+      clearTimeout(timer);
+      if(canPost){ if(demo) live.ready = true; else ready = true; }
+      const n = Object.keys(fresh).length; setConn(canPost ? n + ' player' + (n===1?'':'s') : 'Sign in to save', !canPost);
+    }
     await resolveNames(); render();
+    // A result pasted before signing in: pick it back up now that saving works.
+    const kept = first && !demo && load('pendingPaste');
+    if(kept){ store('pendingPaste'); if(kept.text && Date.now() - kept.at < 864e5){ box.value = kept.text; handle(kept.text); } }
   }, () => { clearTimeout(timer); setConn('Board unavailable', true); });
 })();
 document.addEventListener('visibilitychange', async () => { if(document.hidden) return; render(); await loadGroups(); render(); });

@@ -1,6 +1,6 @@
 # trivialRANKS
 
-A daily trivia leaderboard. Players paste the share text from daily games (Wordle, MapTap, Framed, Catfishing, TimeGuessr, Krillion, Immaculate Grid, Bandle), and the page parses each result, scores it, and ranks players on the total points from the games they played. Each game is worth up to 100 points, based on your place among everyone who played it that day.
+A daily trivia leaderboard. Players paste the share text from daily games (Wordle, MapTap, Framed, Catfishing, TimeGuessr, Krillion, Immaculate Grid, Bandle), and the page parses each result, scores it, and ranks players on the total points from the games they played. Each game scores up to 100 points for how well you did.
 
 ## Running it
 
@@ -22,13 +22,14 @@ The server slips a small stand-in for claude.ai's database and sign-in ([`local/
 
 ### Hosted on Vercel with Supabase
 
-Vercel runs [`build.mjs`](build.mjs), which writes `dist/index.html` with Supabase wired in: email-link sign-in, a Postgres `players` table, and live updates. [`web/supabase-shim.js`](web/supabase-shim.js) does the wiring, and `index.html` itself is unchanged.
+Vercel runs [`build.mjs`](build.mjs), which writes `dist/index.html` with Supabase wired in: emailed-code sign-in, a Postgres `players` table, and live updates. [`web/supabase-shim.js`](web/supabase-shim.js) does the wiring, and `index.html` itself is unchanged.
 
 One-time setup:
 
 1. **Database:** in Supabase, open SQL Editor, paste [`supabase/schema.sql`](supabase/schema.sql) and run it. It creates the `players` table, the access rules (everyone reads, each player writes only their own row) and live updates. Then run [`supabase/groups.sql`](supabase/groups.sql) the same way for groups: invite-link groups whose names, members and codes only their members can see (up to 10 groups per player, 50 players per group). Both files are safe to run again.
 2. **Sign-in links:** in Supabase → Authentication → URL Configuration, set **Site URL** to the site's address (e.g. `https://trivialranks.vercel.app`) and add it under Redirect URLs as `https://<your-site>/**`. If you want sign-in on preview deployments too, also add their exact address pattern from Vercel → Deployments. Never add a bare `https://*.vercel.app/**`, because that would let any Vercel site receive your sign-in links.
-3. **Keys:** in Vercel → Settings → Environment Variables, check that `SUPABASE_URL` and `SUPABASE_ANON_KEY` exist (the Supabase integration adds them). The build only accepts the public anon/publishable key and refuses a secret one.
+3. **Sign-in emails:** players sign in by typing a code from an email. In Supabase → Authentication → Emails, edit both the **Magic Link** and **Confirm signup** templates so the message includes the code, e.g. `Your trivialRANKS code is {{ .Token }}` (keep the `{{ .ConfirmationURL }}` link too; it also works). Without this the emails only carry the link. Supabase's built-in sender allows only a few emails an hour, so set up your own under Authentication → SMTP before inviting people.
+4. **Keys:** in Vercel → Settings → Environment Variables, check that `SUPABASE_URL` and `SUPABASE_ANON_KEY` exist (the Supabase integration adds them). The build only accepts the public anon/publishable key and refuses a secret one.
 
 Every push to `main` then deploys.
 
