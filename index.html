@@ -104,6 +104,8 @@
   .who{margin-top:6px;padding:6px 10px;background:var(--field);border:1px solid var(--line);border-radius:10px;font-size:13px}
   .who .row{padding:2px 0}
   .who .on{font-weight:700}
+  .del{border:0;background:none;color:var(--muted);font-size:20px;line-height:1;padding:2px 4px 2px 10px;cursor:pointer}.del:hover{color:var(--warm)}
+  .undo{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;padding:8px 12px;border-radius:10px;background:var(--soft2)}
   .linkish{border:0;background:none;padding:0;font:inherit;color:var(--warm);cursor:pointer;text-decoration:underline}
   .boards{display:flex;gap:6px;overflow-x:auto;margin:0 0 10px;padding-bottom:2px;scrollbar-width:none}
   .boards .chip{flex:none;background:var(--chip);color:var(--muted);padding:6px 12px}
@@ -396,7 +398,7 @@ function namesOf(ids, max = 2){
   return ns.slice(0, max).join(', ') + (ns.length > max ? ` +${ns.length - max}` : '');
 }
 // The games one player logged that day, in game order: result, points, and where they sit among
-// everyone who played it. Tapping a game lists every player's result. canRemove adds a Remove link.
+// everyone who played it. Tapping a game lists every player's result. canRemove adds a × to delete each result.
 let openStrip = null;
 function dayList(row, byGame, canRemove){
   const gs = GAMES.filter(g => row.games[g.id]);
@@ -404,10 +406,10 @@ function dayList(row, byGame, canRemove){
     <div class="list">` + gs.map(g => { const x = row.games[g.id], open = openStrip === g.id;
     return `<div class="li click" style="display:block" data-strip="${g.id}" role="button" aria-expanded="${open}">
       <div class="row between"><span class="name" style="color:${gameColor(g.id)}">${esc(g.name)}</span>
-        <div><span class="score">${esc(x.e.display)}</span><span class="sub"> · ${x.v} pts</span></div></div>
+        <div class="row" style="gap:0"><span class="score">${esc(x.e.display)}</span><span class="sub">&nbsp;· ${x.v} pts</span>${canRemove ? `<button class="del" data-unlog="${g.id}" aria-label="Delete your ${esc(g.name)} result" title="Delete">×</button>` : ''}</div></div>
       ${strip(g.id, row, byGame)}
       <div class="row between sub"><span>${x.of > 1 ? `${ord(x.place)} of ${x.of}` : 'only player so far'}</span><span>${open ? 'Hide ▴' : 'Who ▾'}</span></div>
-      ${open ? stripDetail(g.id, row, byGame) + `<div class="row between sub" style="margin-top:6px"><a class="spoke" href="${g.url}" target="_blank" rel="noopener" data-game="${g.id}" style="color:inherit">Open ${esc(g.name)} ↗</a>${canRemove ? `<button class="linkish" data-unlog="${g.id}">Remove my result</button>` : ''}</div>` : ''}</div>`;
+      ${open ? stripDetail(g.id, row, byGame) + `<div class="row between sub" style="margin-top:6px"><a class="spoke" href="${g.url}" target="_blank" rel="noopener" data-game="${g.id}" style="color:inherit">Open ${esc(g.name)} ↗</a></div>` : ''}</div>`;
   }).join('') + `</div>`;
 }
 
@@ -477,7 +479,7 @@ function problemWith(r){
   if(r.day > t) return "This puzzle is dated in the future, so it can't be logged.";
   if(r.day < y) return 'Results can only be logged within a day of the puzzle.';
   if(me() && me().results && me().results[r.day] && me().results[r.day][r.game])
-    return `You already logged ${g.name} for ${r.day === t ? 'today. To change it, open it under Your day and remove it first.' : 'yesterday.'}`;
+    return `You already logged ${g.name} for ${r.day === t ? 'today. To change it, delete it under Your day (the ×) and paste again.' : 'yesterday.'}`;
   return '';
 }
 // Takes one result off the signed-in player's row (Undo, and Remove under Your day).
@@ -486,11 +488,29 @@ async function removeResult(day, gid){
   const snap = await db.doc('players/'+uid).get();
   const p = snap.exists ? snap.data() : null;
   if(!p || !p.results || !p.results[day] || !p.results[day][gid]) return;
+  const entry = p.results[day][gid];
   delete p.results[day][gid];
   if(!Object.keys(p.results[day]).length) delete p.results[day];
   await db.doc('players/'+uid).set(p);
   players[uid] = p; openStrip = null; render();
+  return entry;
 }
+// A result deleted from Your day, kept for 15 seconds so it can be put back.
+let deleted = null;
+async function deleteResult(day, gid){
+  const entry = await removeResult(day, gid);
+  if(!entry) return;
+  clearTimeout(deleted && deleted.timer);
+  deleted = {day, gid, entry, timer: setTimeout(() => { deleted = null; render(); }, 15000)};
+  render();
+}
+async function restoreDeleted(){
+  const d = deleted; if(!d || !ready) return;
+  await db.doc('players/'+uid).update({results:{[d.day]:{[d.gid]:d.entry}}});
+  clearTimeout(d.timer); deleted = null;
+  const p = players[uid]; ((p.results ||= {})[d.day] ||= {})[d.gid] = d.entry; render();
+}
+const undoBar = () => deleted && deleted.day === today() ? `<div class="undo"><span>Deleted ${esc(G[deleted.gid].name)} ${esc(deleted.entry.display)}</span><button class="btn ghost" id="undoDelete">Undo</button></div>` : '';
 function showSaved(r){
   const c = $('confirm'); c.hidden = false; c.className = 'card confirm'; c.style.borderLeft = `6px solid ${gameColor(r.game)}`;
   c.innerHTML = `<div class="row between"><div><div class="name">Saved · ${esc(G[r.game].name)} ${esc(r.display)}</div>
@@ -809,11 +829,14 @@ function render(){
         <a class="play" href="${g.url}" target="_blank" rel="noopener" data-game="${g.id}">Play ↗</a></div>`;
     }).join('') + `</div></div>`;
 
+  // Deleted your last result: keep the Undo where Your day was.
+  if(undoBar() && (!vr || vr.id !== uid)) h += `<div class="card"><h2 style="margin:0">Your day</h2>${undoBar()}</div>`;
   if(vr){
     const place = places[rows.indexOf(vr)];
     h += `<div class="card">
       <div class="row between"><h2 style="margin:0">${vr.id === uid ? 'Your day' : esc(nameOf(vr.id)) + "'s day"}</h2>${vr.id !== uid && rows.find(r => r.id === uid) ? '<button class="chip" id="backToMe">← Back to you</button>' : ''}</div>
       <div class="sub" style="margin-top:2px">${ord(place)} of ${rows.length} · ${vr.total} pts from ${vr.played} game${vr.played===1?'':'s'}</div>
+      ${vr.id === uid ? undoBar() : ''}
       ${dayList(vr, byGame, vr.id === uid && ready && !demo)}</div>`;
   }
   $('tab-today').innerHTML = h;
@@ -824,9 +847,12 @@ function render(){
     openStrip = openStrip === el.dataset.strip ? null : el.dataset.strip; render();
   });
   document.querySelectorAll('[data-unlog]').forEach(b => b.onclick = async () => {
-    const gid = b.dataset.unlog; if(!confirm(`Remove your ${G[gid].name} result for today? You can log it again afterwards.`)) return;
-    b.disabled = true; try{ await removeResult(t, gid); }catch(e){ b.disabled = false; b.textContent = "Couldn't remove, try again"; }
+    b.disabled = true; try{ await deleteResult(t, b.dataset.unlog); }catch(e){ b.disabled = false; b.title = "Couldn't delete, try again"; b.textContent = '!'; }
   });
+  if($('undoDelete')) $('undoDelete').onclick = async () => {
+    const b = $('undoDelete'); b.disabled = true;
+    try{ await restoreDeleted(); }catch(e){ b.disabled = false; b.textContent = "Couldn't undo, try again"; }
+  };
   if($('shareBtn')) $('shareBtn').onclick = () => shareStandings(shareText(rows, places, byGame, t));
 
   /* Games: every game by category, with who has played it today */
