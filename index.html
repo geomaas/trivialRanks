@@ -945,19 +945,28 @@ function renderBoards(){
   bar.hidden = !show; if(!show) return;
   bar.innerHTML = [{id: 'all', name: 'Everyone'}, ...groups].map(g =>
     `<button class="chip ${board === g.id ? 'on' : ''}" data-board="${esc(g.id)}">${esc(g.name)}</button>`).join('')
-    + `<button class="chip add" id="boardAdd">+ ${groups.length ? 'Group' : 'Start a group'}</button>`;
+    + `<button class="chip add" id="boardAdd">+ ${groups.length ? 'Group' : 'Start a group'}</button>`
+    + (currentGroup() ? `<button class="chip" id="boardInvite" aria-label="Share the invite link for ${esc(currentGroup().name)}">🔗 Invite link</button>` : '');
   bar.querySelectorAll('[data-board]').forEach(b => b.onclick = () => { pickBoard(b.dataset.board); render(); });
+  if($('boardInvite')) $('boardInvite').onclick = e => shareInvite(currentGroup(), e.currentTarget);
   $('boardAdd').onclick = () => { page = 'profile'; window.scrollTo(0,0); render(); setTimeout(() => $('groupName') && $('groupName').focus(), 0); };
 }
 
 const inviteLink = g => SITE + (/(\/|\.html)$/.test(SITE) ? '' : '/') + '?join=' + g.code;
-async function shareInvite(g){
+// Shares a group's invite link (share sheet on phones, clipboard on computers). btn, if given,
+// shows "Copied" for pages that have no group message line.
+async function shareInvite(g, btn){
+  if(!g) return;
   const url = inviteLink(g), text = `Join my trivialRANKS group "${g.name}": ${url}`;
   if(matchMedia('(pointer:coarse)').matches && navigator.share){
     try{ await navigator.share({text}); return; }catch(e){ if(e && e.name === 'AbortError') return; }
   }
-  try{ await navigator.clipboard.writeText(url); say('Invite link copied. Anyone with it can join.'); }
-  catch(e){ say('Copy this link to invite people: ' + url); }
+  try{
+    await navigator.clipboard.writeText(url); say('Invite link copied. Anyone with it can join.');
+    if(btn){ const was = btn.textContent; btn.textContent = 'Link copied ✓'; setTimeout(() => { btn.textContent = was; }, 2000); }
+  }catch(e){
+    if($('groupMsg')) say('Copy this link to invite people: ' + url); else prompt('Copy this invite link:', url);
+  }
 }
 function say(text, warn){ const m = $('groupMsg'); if(m){ m.textContent = text; m.style.color = warn ? 'var(--warm)' : ''; } }
 // Runs a group change, reloads the list, and shows any error from the database (already worded for people).
