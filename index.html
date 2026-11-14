@@ -400,6 +400,8 @@ function namesOf(ids, max = 2){
 // The games one player logged that day, in game order: result, points, and where they sit among
 // everyone who played it. Tapping a game lists every player's result. canRemove adds a × to delete each result.
 let openStrip = null;
+// Today's standings: rank on 'all' games played, or only the games everyone has in 'common'.
+let standMode = load('standMode') === 'common' ? 'common' : 'all';
 function dayList(row, byGame, canRemove){
   const gs = GAMES.filter(g => row.games[g.id]);
   return `<div class="row between sub" style="margin:10px 0 0"><span>Each dot is a player · tap a game for names</span><span>worst ← → best</span></div>
@@ -421,16 +423,24 @@ const LOCAL_HOST = /^(localhost|127\.|10\.|192\.168\.|\[::1\])/.test(location.ho
 const SITE = (!LOCAL_HOST && SHARE_URL) || location.origin + location.pathname;
 const MEDALS = ['🥇','🥈','🥉'];
 const SHARE_TOP = 10;
+// The day's standings counting only the games every player on the board played,
+// so everyone is compared on the same games. Rows have the same shape as dayData's.
+function inCommon(rows){
+  const common = GAMES.filter(gm => rows.length && rows.every(r => r.games[gm.id]));
+  const ranked = !common.length ? [] : rows.map(r => {
+    const games = {}; let total = 0;
+    common.forEach(gm => { games[gm.id] = r.games[gm.id]; total += r.games[gm.id].v; });
+    return {id: r.id, games, played: common.length, total, avg: Math.round(total / common.length)};
+  }).sort((a,b) => b.total - a.total || b.avg - a.avg);
+  return {common, rows: ranked, places: placesOf(ranked, r => r.total)};
+}
 // Builds share text for the day's standings, like the result text the games themselves share.
 // Only the games every listed player played are shared, so everyone is compared on the same games.
 function shareText(rows, places, byGame, day){
   const d = new Date(day+'T12:00:00').toLocaleDateString(undefined, {weekday:'short', month:'short', day:'numeric'});
   const g = currentGroup(), lines = [`trivialRANKS · ${g ? g.name + ' · ' : ''}${d}`, ''];
-  const common = GAMES.filter(gm => rows.length && rows.every(r => r.games[gm.id]));
+  const {common, rows: ranked, places: pl} = inCommon(rows);
   if(common.length){
-    const ranked = rows.map(r => ({id: r.id, games: r.games, total: common.reduce((s, gm) => s + r.games[gm.id].v, 0)}))
-      .sort((a,b) => b.total - a.total);
-    const pl = placesOf(ranked, r => r.total);
     lines.push(`Games in common: ${common.map(gm => gm.name).join(', ')}`, '');
     const line = i => {
       const r = ranked[i];
@@ -822,14 +832,21 @@ function render(){
   /* Today: standings, games others played that you haven't, then one player's day */
   let h = `<div class="card"><div class="row between"><h2 style="margin:0">Today's standings</h2>${rows.length ? `<button class="chip" id="shareBtn" aria-label="Share today's standings"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>Share</button>` : ''}</div>
     <div id="shareOut" hidden style="margin-top:8px"><div class="sub"></div><pre style="white-space:pre-wrap;user-select:all;background:var(--field);border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:4px 0 0;font:12.5px/1.45 ui-monospace,Menlo,monospace"></pre></div>`;
-  h += rows.length ? `<div class="list" style="margin-top:6px">` + rows.map((r, i) => `
+  // Rank on every game played, or only the games everyone played (same as the share text).
+  const common = standMode === 'common' && rows.length > 1, cm = common ? inCommon(rows) : null;
+  const sRows = common ? cm.rows : rows, sPlaces = common ? cm.places : places;
+  if(rows.length > 1) h += `<div class="row between" style="margin-top:8px;gap:8px;flex-wrap:wrap"><div class="seg" role="group" aria-label="Rank by">` +
+    [['all','All games'],['common','Games in common']].map(([k,label]) => `<button data-stand="${k}" class="${(common ? 'common' : 'all')===k?'on':''}">${label}</button>`).join('') +
+    `</div>${common && cm.common.length ? `<span class="sub">${esc(cm.common.map(g => g.name).join(', '))}</span>` : ''}</div>`;
+  h += sRows.length ? `<div class="list" style="margin-top:6px">` + sRows.map((r, i) => `
       <div class="li click ${r.id===uid?'me':''} ${r.id===viewing?'sel':''}" data-view="${esc(r.id)}">
-        <div class="rank ${places[i]===1?'r1':''}">${places[i]}</div>
-        <div class="grow"><div class="name">${esc(nameOf(r.id))}</div>${stack(r, rows[0].total)}</div>
+        <div class="rank ${sPlaces[i]===1?'r1':''}">${sPlaces[i]}</div>
+        <div class="grow"><div class="name">${esc(nameOf(r.id))}</div>${stack(r, sRows[0].total)}</div>
         <div style="text-align:right"><div class="score">${r.total}<span class="sub"> pts</span></div><div class="sub">${r.played} game${r.played===1?'':'s'} · avg ${r.avg}</div></div>
-      </div>`).join('') + `</div>` + stackLegend(rows)
+      </div>`).join('') + `</div>` + stackLegend(sRows)
+    : common ? `<div class="empty">No game everyone played yet today. Switch to All games to see the full standings.</div>`
     : `<div class="empty">No results yet today. Play a game and paste your result above.</div>`;
-  h += `<div class="hint">Ranked by total points. Each game scores up to 100 for how well you did, so your points never change after you play. Bars show each player's total, split by game. Tap a player to see their day.</div></div>`;
+  h += `<div class="hint">${common ? 'Ranked on only the games everyone played today, so everyone is compared on the same games.' : 'Ranked by total points.'} Each game scores up to 100 for how well you did, so your points never change after you play. Bars show each player's total, split by game. Tap a player to see their day.</div></div>`;
 
   const todo = GAMES.filter(g => byGame[g.id] && !byGame[g.id].some(x => x.id === uid))
     .sort((a,b) => byGame[b.id].length - byGame[a.id].length);
@@ -853,6 +870,7 @@ function render(){
   }
   $('tab-today').innerHTML = h;
   document.querySelectorAll('[data-view]').forEach(el => el.onclick = () => { viewing = el.dataset.view; render(); });
+  document.querySelectorAll('[data-stand]').forEach(b => b.onclick = () => { standMode = b.dataset.stand; store('standMode', standMode); render(); });
   if($('backToMe')) $('backToMe').onclick = () => { viewing = uid; render(); };
   document.querySelectorAll('[data-strip]').forEach(el => el.onclick = ev => {
     if(ev.target.closest('a, button')) return;   // links and Remove inside an open row keep working
