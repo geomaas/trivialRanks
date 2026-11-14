@@ -130,12 +130,12 @@
     // The signed-in player's groups: [{id, name, code, role, members: [{id, role, joinedAt}]}]
     async list(){
       const s = await sessionReady; if(!s) return [];
-      const {data, error} = await sb.from('groups').select('id, name, invite_code, created_at, group_members(player_id, role, joined_at)').order('created_at');
+      const {data, error} = await sb.from('groups').select('id, name, invite_code, listed, created_at, group_members(player_id, role, joined_at)').order('created_at');
       if(error) throw fail(error);
       return (data || []).map(g => {
         const members = (g.group_members || []).map(m => ({id: m.player_id, role: m.role, joinedAt: m.joined_at}))
           .sort((a,b) => a.joinedAt < b.joinedAt ? -1 : 1);
-        return {id: g.id, name: g.name, code: g.invite_code, members, role: (members.find(m => m.id === s.user.id) || {}).role || 'member'};
+        return {id: g.id, name: g.name, code: g.invite_code, listed: g.listed !== false, members, role: (members.find(m => m.id === s.user.id) || {}).role || 'member'};
       });
     },
     preview: code => rpc('preview_group', {p_code: code}),       // {id, name, members, member} or null
@@ -145,6 +145,21 @@
     rename: (id, name) => rpc('rename_group', {p_group: id, p_name: name}),
     resetCode: id => rpc('reset_invite', {p_group: id}),         // the new code
     remove: (id, playerId) => rpc('remove_member', {p_group: id, p_player: playerId}),
+    // Search and join requests (supabase/group-requests.sql).
+    // Waiting requests you can see: your own, plus those for groups you run. [{groupId, playerId, at}]
+    async requests(){
+      const s = await sessionReady; if(!s) return [];
+      const {data, error} = await sb.from('group_join_requests').select('group_id, player_id, created_at').order('created_at');
+      if(error) throw fail(error);
+      const mine = await rpc('my_join_requests', {}).catch(() => []), names = Object.fromEntries((mine || []).map(r => [r.groupId, r.name]));
+      return (data || []).map(r => ({groupId: r.group_id, playerId: r.player_id, at: r.created_at, groupName: names[r.group_id] || ''}));
+    },
+    search: q => rpc('search_groups', {p_query: q}),             // [{id, name, members, member, requested}]
+    request: id => rpc('request_join', {p_group: id}),           // 'requested' or 'member'
+    cancelRequest: id => rpc('cancel_join_request', {p_group: id}),
+    approve: (id, playerId) => rpc('approve_join_request', {p_group: id, p_player: playerId}),
+    decline: (id, playerId) => rpc('decline_join_request', {p_group: id, p_player: playerId}),
+    setListed: (id, listed) => rpc('set_group_listed', {p_group: id, p_listed: listed}),
   });
 
   window.claude = Object.freeze({

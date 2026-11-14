@@ -32,7 +32,7 @@
   *{box-sizing:border-box}
   html,body{margin:0;background:var(--paper);color:var(--ink);font-family:Inter,system-ui,sans-serif;font-size:15px;line-height:1.45}
   .wrap{max-width:560px;margin:0 auto;padding:18px 16px 60px}
-  header{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:14px}
+  header{display:flex;align-items:flex-end;justify-content:space-between;gap:8px 12px;margin-bottom:14px;flex-wrap:wrap}
   h1{font-family:Fraunces,serif;font-weight:800;font-size:30px;line-height:1;margin:0;letter-spacing:-.5px}
   h1 span{color:var(--warm)}
   .date{color:var(--muted);font-size:13px;margin-top:4px}
@@ -47,6 +47,7 @@
   .row{display:flex;gap:8px;align-items:center}
   .between{justify-content:space-between}
   .grow{flex:1;min-width:0}
+  .badge-count{margin-left:5px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--warm);color:#fff;font:700 11px/18px Inter,sans-serif;text-align:center;display:inline-block}
   button.btn, a.btn{border:0;border-radius:10px;padding:10px 14px;font:600 14px Inter,sans-serif;cursor:pointer;background:var(--accent);color:#fff}
   button.btn.ghost{background:transparent;color:var(--muted);border:1px solid var(--line)}
   button.btn:disabled{opacity:.45;cursor:default}
@@ -87,7 +88,7 @@
   .progress{height:8px;background:var(--chip);border-radius:99px;overflow:hidden;margin-top:6px}
   .progress div{height:100%;background:var(--accent);border-radius:99px}
   .empty{color:var(--muted);font-size:14px;padding:6px 0}
-  .namebox input{flex:1;border:1px solid var(--line);border-radius:10px;padding:9px 11px;font:15px Inter,sans-serif;background:var(--field)}
+  .namebox input{flex:1;min-width:0;border:1px solid var(--line);border-radius:10px;padding:9px 11px;font:15px Inter,sans-serif;background:var(--field)}
   .legend{display:flex;flex-wrap:wrap;gap:6px 12px;margin-top:6px}
   .cattable{width:100%;border-collapse:collapse;margin-top:6px;font-size:13.5px}
   .cattable td{padding:5px 0;border-top:1px solid var(--line)}
@@ -123,6 +124,7 @@
     </div>
     <div class="row" style="gap:6px">
       <button class="chip" id="statsBtn" aria-label="History and stats"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Stats</button>
+      <button class="chip" id="groupsBtn" aria-label="Groups" hidden><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c1-3.5 3.5-5.5 6.5-5.5s5.5 2 6.5 5.5"/><path d="M16 4.8a3.5 3.5 0 0 1 0 6.4M18 14.8c1.8.8 3 2.6 3.5 5.2"/></svg>Groups<span id="groupsBadge" class="badge-count" hidden></span></button>
       <button class="chip" id="nameChip" aria-label="Your profile"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>Profile</button>
     </div>
   </header>
@@ -645,6 +647,7 @@ async function save(){
 /* ---------- Name ---------- */
 $('nameChip').onclick = () => openPage('profile');
 $('statsBtn').onclick = () => openPage('stats');
+$('groupsBtn').onclick = () => openPage('groups');
 $('nameSave').onclick = async () => {
   const n = $('nameInput').value.trim().slice(0,24); if(!n) return;
   store('name', n);
@@ -710,7 +713,9 @@ function renderProfile(){
     </div>
     <div class="hint">${demo ? 'Name changes are off while previewing the sample group.' : 'Shown to everyone on your boards.'}</div>
   </div>
-  ${groupsCard()}
+  ${groupsApi && !demo ? `<div class="card"><div class="row between"><div><h2 style="margin:0">Groups</h2>
+    <div class="sub">${groups.length ? groups.map(g => esc(g.name)).join(', ') : 'Start a group or find one to join.'}</div></div>
+    <button class="btn ghost" id="profGroups">Open</button></div></div>` : groupsCard()}
   <div class="card"><h2>Preferences</h2>
     <div class="row between" style="flex-wrap:wrap;gap:8px"><span>Appearance</span>${themeSeg()}</div>
     ${groupsApi ? '' : '<div class="hint" style="margin-top:12px">Sign-in: this copy uses your claude.ai account.</div>'}</div>`;
@@ -845,6 +850,10 @@ function renderHeader(){
   setConnText();
   $('nameChip').style.cssText = page === 'profile' ? 'background:var(--accent);color:#fff' : '';
   $('statsBtn').style.cssText = page === 'stats' ? 'background:var(--accent);color:#fff' : '';
+  $('groupsBtn').hidden = !groupsApi || demo;
+  $('groupsBtn').style.cssText = page === 'groups' || page === 'group' ? 'background:var(--accent);color:#fff' : '';
+  const nIn = incomingRequests().length;
+  $('groupsBadge').hidden = !nIn; $('groupsBadge').textContent = nIn;
   $('nameBox').hidden = !(ready && !(me() && me().name) && !load('name'));
   renderJoin(); renderBoards();
 }
@@ -853,9 +862,10 @@ function render(){
   renderHeader();
   showPage(!!page);
   if(page){
-    $('page').innerHTML = page === 'profile' ? renderProfile() : page === 'group' ? renderGroup() : renderStats();
-    $('pageBack').onclick = () => page === 'group' ? (page = 'profile', render()) : openPage(page);
+    $('page').innerHTML = page === 'profile' ? renderProfile() : page === 'group' ? renderGroup() : page === 'groups' ? renderGroupsPage() : renderStats();
+    $('pageBack').onclick = () => page === 'group' ? (page = 'groups', render()) : openPage(page);
     wireTheme(); wireGroups();
+    if($('profGroups')) $('profGroups').onclick = () => openPage('groups');
     if($('profSave')) $('profSave').onclick = async () => {
       const n = $('profName').value.trim().slice(0,24); if(!n) return;
       store('name', n);
@@ -966,7 +976,10 @@ function render(){
 /* ---------- Groups (hosted site only; claude.ai has no 'groups', so these stay hidden there) ---------- */
 // board: 'all' for the global board, or a group id. Results live on each player, so a group
 // is just who you're compared with: points are worked out among the group's members.
-let groupsApi = null, groups = [], board = load('board') || 'all', joinOffer = null, groupOpen = null, groupFlash = '';
+let groupsApi = null, groups = [], joinReqs = [], groupSearch = {q: '', results: null, busy: false, err: ''}, board = load('board') || 'all', joinOffer = null, groupOpen = null, groupFlash = '';
+// Requests waiting on groups you run, and the ones you've sent.
+const incomingRequests = gid => joinReqs.filter(r => r.playerId !== uid && (gid ? r.groupId === gid : groups.some(g => g.id === r.groupId && g.role === 'owner')));
+const myRequests = () => joinReqs.filter(r => r.playerId === uid);
 const currentGroup = () => (board !== 'all' && groups.find(g => g.id === board)) || null;
 function boardPlayers(){
   const g = currentGroup(); if(!g || demo) return players;
@@ -978,6 +991,7 @@ async function loadGroups(){
   if(!groupsApi || !uid) return;
   try{
     groups = await groupsApi.list();
+    try{ joinReqs = groupsApi.requests ? await groupsApi.requests() : []; }catch(e){ joinReqs = []; }
     if(board !== 'all' && !groups.some(g => g.id === board)) pickBoard('all');
   }catch(e){}
 }
@@ -1022,7 +1036,7 @@ function renderBoards(){
     + (currentGroup() ? `<button class="chip" id="boardInvite" aria-label="Share the invite link for ${esc(currentGroup().name)}">🔗 Invite link</button>` : '');
   bar.querySelectorAll('[data-board]').forEach(b => b.onclick = () => { pickBoard(b.dataset.board); render(); });
   if($('boardInvite')) $('boardInvite').onclick = e => shareInvite(currentGroup(), e.currentTarget);
-  $('boardAdd').onclick = () => { page = 'profile'; window.scrollTo(0,0); render(); setTimeout(() => $('groupName') && $('groupName').focus(), 0); };
+  $('boardAdd').onclick = () => { page = 'groups'; window.scrollTo(0,0); render(); };
 }
 
 const inviteLink = g => SITE + (/(\/|\.html)$/.test(SITE) ? '' : '/') + '?join=' + g.code;
@@ -1053,9 +1067,9 @@ function groupsCard(){
   if(demo) return `<div class="card"><h2>Groups</h2><div class="list"><div class="li"><div class="grow name">${esc(DEMO_GROUP)} (sample)</div></div></div></div>`;
   if(!groupsApi) return `<div class="card"><h2>Groups</h2><div class="hint" style="margin-top:0">Groups are on the hosted site.</div></div>`;
   if(!uid) return `<div class="card"><h2>Groups</h2><div class="hint" style="margin-top:0">Sign in to start or join a group.</div></div>`;
-  return `<div class="card"><h2>Groups</h2>
+  return `<div class="card"><h2>Your groups</h2>
     ${groups.length ? `<div class="list">` + groups.map(g => `<div class="li"><div class="grow"><div class="name">${esc(g.name)}</div>
-        <div class="sub">${g.members.length} player${g.members.length===1?'':'s'}${g.role === 'owner' ? ' · you run it' : ''}</div></div>
+        <div class="sub">${g.members.length} player${g.members.length===1?'':'s'}${g.role === 'owner' ? ' · you run it' : ''}${incomingRequests(g.id).length ? ` · <b style="color:var(--warm)">${incomingRequests(g.id).length} waiting to join</b>` : ''}</div></div>
         <button class="chip" data-invite="${esc(g.id)}">Invite</button><button class="chip" data-manage="${esc(g.id)}" style="background:var(--chip);color:var(--muted)">Manage</button></div>`).join('') + `</div>` : ''}
     <div class="row namebox" style="margin-top:${groups.length ? 12 : 0}px"><input id="groupName" maxlength="40" placeholder="New group name, e.g. Trivia Night"><button class="btn" id="groupCreate">Create</button></div>
     <div class="hint" id="groupMsg">${groups.length ? '' : 'Start a group and share its invite link. '}Everyone is still on the global board too.</div></div>`;
@@ -1064,7 +1078,13 @@ function renderGroup(){
   const g = groups.find(x => x.id === groupOpen);
   if(!g) return backBar('Group') + `<div class="card"><div class="empty">You're not in this group anymore.</div></div>`;
   const owner = g.role === 'owner', alone = g.members.length === 1;
-  return backBar(esc(g.name)) + `
+  const waiting = owner ? incomingRequests(g.id) : [];
+  return backBar(esc(g.name)) + (waiting.length ? `
+  <div class="card" style="border-left:6px solid var(--warm)"><h2>Asking to join · ${waiting.length}</h2><div class="list">` + waiting.map(r => `
+    <div class="li"><div class="grow"><div class="name">${esc(players[r.playerId] ? nameOf(r.playerId) : 'New player')}</div>
+      <div class="sub">Asked ${new Date(r.at).toLocaleDateString(undefined,{month:'short',day:'numeric'})}</div></div>
+      <button class="btn" data-approve="${esc(r.playerId)}" style="padding:7px 12px">Approve</button>
+      <button class="chip" data-decline="${esc(r.playerId)}" style="background:var(--chip);color:var(--muted)">Decline</button></div>`).join('') + `</div></div>` : '') + `
   <div class="card"><h2>Invite people</h2>
     <input readonly value="${esc(inviteLink(g))}" onclick="this.select()" style="width:100%;border:1px solid var(--line);border-radius:10px;padding:9px 11px;font:13px ui-monospace,Menlo,monospace;background:var(--field);color:var(--ink)">
     <div class="row" style="margin-top:10px;gap:8px"><button class="btn grow" id="gShare">Share invite link</button>${owner ? '<button class="btn ghost" id="gReset">New link</button>' : ''}</div>
@@ -1073,11 +1093,67 @@ function renderGroup(){
     <div class="li ${m.id===uid?'me':''}"><div class="grow"><div class="name">${esc(players[m.id] ? nameOf(m.id) : 'New player')}</div>
       <div class="sub">${m.role === 'owner' ? 'Runs the group · ' : ''}joined ${new Date(m.joinedAt).toLocaleDateString(undefined,{month:'short',day:'numeric'})}</div></div>
       ${owner && m.id !== uid ? `<button class="chip" data-remove="${esc(m.id)}" style="background:var(--warm-soft);color:var(--warm)">Remove</button>` : ''}</div>`).join('') + `</div></div>
+  ${owner ? `<div class="card"><h2>Group search</h2>
+    <label class="row" style="gap:10px;cursor:pointer"><input type="checkbox" id="gListed" ${g.listed ? 'checked' : ''} style="width:18px;height:18px;accent-color:var(--accent)">
+      <span>Let people find this group and ask to join</span></label>
+    <div class="hint">${g.listed ? "Anyone signed in can see the group's name and size in search. You approve each request." : 'Hidden: people can only join with your invite link.'}</div></div>` : ''}
   ${owner ? `<div class="card"><h2>Rename</h2><div class="row namebox"><input id="gName" maxlength="40" value="${esc(g.name)}"><button class="btn" id="gRename">Save</button></div></div>` : ''}
   <div class="card"><button class="btn ghost" id="gLeave" style="width:100%;color:var(--warm);border-color:var(--warm)">Leave group</button>
     <div class="hint">${alone ? "You're the only player, so leaving deletes the group." : owner ? 'If you leave, the longest-standing player takes over the group.' : 'You can rejoin with an invite link.'}</div></div>`;
 }
+// The Groups page: find a group, your groups, and the requests you've sent.
+function renderGroupsPage(){
+  if(demo || !groupsApi || !uid) return backBar('Groups') + groupsCard();
+  const sent = myRequests();
+  return backBar('Groups') + `
+  <div class="card"><h2>Find a group</h2>
+    <input id="gsQuery" type="search" maxlength="40" autocomplete="off" placeholder="Search by group name" value="${esc(groupSearch.q)}"
+      style="width:100%;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:15px Inter,sans-serif;background:var(--field);color:var(--ink)">
+    <div id="gsResults">${searchResultsHtml()}</div>
+    <div class="hint">Groups can be found here unless their owner hides them. Asking to join sends a request the owner approves.</div></div>
+  ${groupsCard()}
+  ${sent.length ? `<div class="card"><h2>Waiting to join</h2><div class="list">` + sent.map(r => `
+    <div class="li"><div class="grow"><div class="name">${esc(r.groupName || 'A group')}</div>
+      <div class="sub">Asked ${new Date(r.at).toLocaleDateString(undefined,{month:'short',day:'numeric'})}</div></div>
+      <button class="chip" data-unreq="${esc(r.groupId)}">Cancel</button></div>`).join('') + `</div></div>` : ''}`;
+}
+function searchResultsHtml(){
+  const st = groupSearch;
+  if(st.q.trim().length < 2) return '';
+  if(st.err) return `<div class="hint" style="color:var(--warm)">${esc(st.err)}</div>`;
+  if(!st.results) return `<div class="hint">Searching…</div>`;
+  if(!st.results.length) return `<div class="empty" style="padding:14px 0 4px">No groups match "${esc(st.q.trim())}".</div>`;
+  return `<div class="list" style="margin-top:8px">` + st.results.map(g => `
+    <div class="li"><div class="grow"><div class="name">${esc(g.name)}</div><div class="sub">${g.members} player${g.members===1?'':'s'}</div></div>
+      ${g.member ? `<span class="sub">You're in</span>`
+        : g.requested ? `<button class="chip" data-unreq="${esc(g.id)}" title="Cancel request">Requested ✓</button>`
+        : `<button class="btn" data-req="${esc(g.id)}" style="padding:7px 12px">Request to join</button>`}</div>`).join('') + `</div>`;
+}
+let searchTimer = null, searchSeq = 0;
+async function runSearch(){
+  const q = groupSearch.q.trim(), seq = ++searchSeq;
+  if(q.length < 2){ groupSearch.results = null; groupSearch.err = ''; return paintSearch(); }
+  groupSearch.results = groupSearch.results && groupSearch.lastQ === q ? groupSearch.results : null; groupSearch.err = ''; paintSearch();
+  try{ const r = await groupsApi.search(q); if(seq !== searchSeq) return; groupSearch.results = r || []; groupSearch.lastQ = q; }
+  catch(e){ if(seq !== searchSeq) return; groupSearch.err = (e && e.message) || "Couldn't search right now."; }
+  paintSearch();
+}
+// Repaints only the results, so the search box keeps focus while you type.
+function paintSearch(){ const el = $('gsResults'); if(el){ el.innerHTML = searchResultsHtml(); wireRequestButtons(); } }
+function wireRequestButtons(){
+  const act = async (b, fn, msg) => {
+    b.disabled = true;
+    try{ await fn(); await loadGroups(); if(groupSearch.q.trim().length >= 2) await runSearch(); render(); }
+    catch(e){ b.disabled = false; alert((e && e.message) || msg); }
+  };
+  document.querySelectorAll('[data-req]').forEach(b => b.onclick = () => act(b, () => groupsApi.request(b.dataset.req), "Couldn't send the request. Try again."));
+  document.querySelectorAll('[data-unreq]').forEach(b => b.onclick = () => act(b, () => groupsApi.cancelRequest(b.dataset.unreq), "Couldn't cancel. Try again."));
+}
 function wireGroups(){
+  if($('gsQuery')){
+    $('gsQuery').oninput = e => { groupSearch.q = e.target.value; clearTimeout(searchTimer); searchTimer = setTimeout(runSearch, 250); };
+  }
+  wireRequestButtons();
   const on = (id, fn) => { if($(id)) $(id).onclick = fn; };
   on('groupCreate', () => {
     const name = $('groupName').value.trim(); if(!name) return $('groupName').focus();
@@ -1088,9 +1164,16 @@ function wireGroups(){
   document.querySelectorAll('[data-manage]').forEach(b => b.onclick = () => { groupOpen = b.dataset.manage; page = 'group'; window.scrollTo(0,0); render(); });
   const g = page === 'group' && groups.find(x => x.id === groupOpen); if(!g) return;
   on('gShare', () => shareInvite(g));
+  if($('gListed')) $('gListed').onchange = e => {
+    const v = e.target.checked;
+    if(!v && incomingRequests(g.id).length && !confirm('Hide the group? Waiting requests will be cleared.')){ e.target.checked = true; return; }
+    groupAction(() => groupsApi.setListed(g.id, v), () => { groupFlash = v ? 'People can find the group now.' : 'Hidden from search.'; });
+  };
+  document.querySelectorAll('[data-approve]').forEach(b => b.onclick = () => { b.disabled = true; groupAction(() => groupsApi.approve(g.id, b.dataset.approve), () => { groupFlash = 'Added to the group.'; }); });
+  document.querySelectorAll('[data-decline]').forEach(b => b.onclick = () => { b.disabled = true; groupAction(() => groupsApi.decline(g.id, b.dataset.decline)); });
   on('gReset', () => { if(confirm('Make a new invite link? The current link will stop working.')) groupAction(() => groupsApi.resetCode(g.id), () => { groupFlash = 'New link ready. The old one no longer works.'; }); });
   on('gRename', () => groupAction(() => groupsApi.rename(g.id, $('gName').value), () => { groupFlash = 'Renamed.'; }));
-  on('gLeave', () => { if(confirm(`Leave ${g.name}?`)) groupAction(() => groupsApi.leave(g.id), () => { page = 'profile'; if(board === g.id) pickBoard('all'); }); });
+  on('gLeave', () => { if(confirm(`Leave ${g.name}?`)) groupAction(() => groupsApi.leave(g.id), () => { page = 'groups'; if(board === g.id) pickBoard('all'); }); });
   document.querySelectorAll('[data-remove]').forEach(b => b.onclick = () => {
     const id = b.dataset.remove; if(confirm(`Remove ${players[id] ? nameOf(id) : 'this player'} from ${g.name}?`)) groupAction(() => groupsApi.remove(g.id, id));
   });
