@@ -47,7 +47,7 @@
   .row{display:flex;gap:8px;align-items:center}
   .between{justify-content:space-between}
   .grow{flex:1;min-width:0}
-  button.btn{border:0;border-radius:10px;padding:10px 14px;font:600 14px Inter,sans-serif;cursor:pointer;background:var(--accent);color:#fff}
+  button.btn, a.btn{border:0;border-radius:10px;padding:10px 14px;font:600 14px Inter,sans-serif;cursor:pointer;background:var(--accent);color:#fff}
   button.btn.ghost{background:transparent;color:var(--muted);border:1px solid var(--line)}
   button.btn:disabled{opacity:.45;cursor:default}
   .hint{font-size:12.5px;color:var(--muted);margin-top:8px}
@@ -140,7 +140,7 @@
 
   <div class="card" id="pasteCard">
     <div class="row between" style="margin-bottom:8px">
-      <h2 style="margin:0">Log a result</h2>
+      <h2 style="margin:0" id="pasteTitle">Log a result</h2>
       <span class="status" id="conn">Connecting…</span>
     </div>
     <div id="pasteBody">
@@ -483,6 +483,39 @@ function handle(text){
   if(pending && r.verified && ready && !demo && !problemWith(r)){ $('confirm')._raw = text; save(); return; }
   showConfirm(r, text);
 }
+/* ---------- Coming back from a game ---------- */
+// Opening a game from the site remembers it; switching back within the hour puts Paste up top.
+const RETURN_WINDOW = 60 * 60 * 1000;
+let returnFrom = null;   // game id we're expecting a result for
+const loggedToday = gid => !!(me() && me().results && (me().results[today()] || {})[gid]);
+document.addEventListener('click', ev => {
+  const a = ev.target.closest && ev.target.closest('a[data-game]'); if(!a) return;
+  const gid = a.dataset.game;
+  store('launch:'+gid+':'+today(), new Date().toISOString());
+  if(!loggedToday(gid)) store('awaiting', {game: gid, at: Date.now()});
+});
+function checkReturn(){
+  const w = load('awaiting');
+  returnFrom = w && G[w.game] && Date.now() - w.at < RETURN_WINDOW && !loggedToday(w.game) ? w.game : null;
+  if(!returnFrom && w) store('awaiting');
+  return !!returnFrom;
+}
+// Registered before the main visibilitychange handler, so the render that follows sees returnFrom.
+document.addEventListener('visibilitychange', () => {
+  if(document.hidden || !checkReturn() || page) return;
+  pasteOpen = true;
+  setTimeout(() => { window.scrollTo({top: 0, behavior: 'smooth'}); }, 50);
+});
+checkReturn();
+// The game to suggest after saving one: unplayed today, games others already played first
+// (so there's more in common to compare), then the usual game order.
+function nextGame(justSaved){
+  const day = (me() && me().results && me().results[today()]) || {}, byGame = dayData(today()).byGame;
+  const left = GAMES.filter(g => g.id !== justSaved && !day[g.id]);
+  const others = g => (byGame[g.id] || []).filter(x => x.id !== uid).length;
+  return left.sort((a,b) => others(b) - others(a))[0] || null;
+}
+
 // The one-tap Paste button, where the browser lets a page read the clipboard on a tap.
 if(navigator.clipboard && navigator.clipboard.readText){
   $('pasteBtn').hidden = false;
@@ -535,14 +568,20 @@ async function restoreDeleted(){
 const undoBar = () => deleted && deleted.day === today() ? `<div class="undo"><span>Deleted ${esc(G[deleted.gid].name)} ${esc(deleted.entry.display)}</span><button class="btn ghost" id="undoDelete">Undo</button></div>` : '';
 function showSaved(r){
   const c = $('confirm'); c.hidden = false; c.className = 'card confirm'; c.style.borderLeft = `6px solid ${gameColor(r.game)}`;
+  if(load('awaiting') && load('awaiting').game === r.game) store('awaiting');
+  returnFrom = null; $('pasteTitle').textContent = 'Log a result'; $('pasteBtn').textContent = 'Paste result'; $('pasteBtn').style.background = '';
+  const nx = r.day === today() ? nextGame(r.game) : null;
   c.innerHTML = `<div class="row between"><div><div class="name">Saved · ${esc(G[r.game].name)} ${esc(r.display)}</div>
       <div class="sub">${r.day === today() ? 'Today' : 'Yesterday'}${r.verified ? '' : ' · check the score looks right'}</div></div>
-    <button class="btn ghost" id="cUndo">Undo</button></div>`;
+    <button class="btn ghost" id="cUndo">Undo</button></div>` +
+    (nx ? `<a class="btn" id="cNext" href="${nx.url}" target="_blank" rel="noopener" data-game="${nx.id}" style="display:block;text-align:center;text-decoration:none;margin-top:10px;background:${gameColor(nx.id)}">Next: ${esc(nx.name)} ↗</a>`
+      : r.day === today() ? `<div class="sub" style="margin-top:8px">That's every game for today. 🎉</div>` : '');
   $('cUndo').onclick = async () => {
     $('cUndo').disabled = true;
     try{ await removeResult(r.day, r.game); hideConfirm(); }catch(e){ $('cUndo').disabled = false; $('cUndo').textContent = "Couldn't undo, try again"; }
   };
-  clearTimeout(c._t); c._t = setTimeout(() => { if($('cUndo')) hideConfirm(); }, 15000);
+  if($('cNext')) $('cNext').addEventListener('click', () => setTimeout(hideConfirm, 0));
+  clearTimeout(c._t); c._t = setTimeout(() => { if($('cUndo')) hideConfirm(); }, nx ? 120000 : 15000);
 }
 function hideConfirm(){ $('confirm').hidden = true; pending = null; }
 function showConfirm(r, raw){
@@ -900,7 +939,6 @@ function render(){
   }
   gh += `<div class="hint">Every game counts toward your total. Games open in a new tab; when you finish, tap the game's Share button and paste here.</div></div>`;
   $('tab-games').innerHTML = gh;
-  document.querySelectorAll('a.play, a.spoke').forEach(a => a.onclick = () => { store('launch:'+a.dataset.game+':'+today(), new Date().toISOString()); });
 
   /* Week: total points over the last 7 days */
   const agg = {};
@@ -913,7 +951,12 @@ function render(){
         <div class="grow"><div class="name">${esc(nameOf(r.id))}</div><div class="sub">${r.games} game${r.games===1?'':'s'} over ${r.days} day${r.days===1?'':'s'}</div></div>
         <div style="text-align:right"><div class="score">${r.total}<span class="sub"> pts</span></div><div class="sub">avg ${Math.round(r.total / r.days)} a day</div></div></div>`).join('') + `</div>
       <div class="hint">Total points from every game logged this week.</div>` : `<div class="empty">Nobody has played this week yet.</div>`) + `</div>`;
-  const collapsed = Object.keys(mine).length > 0 && !pasteOpen && !box.value && $('confirm').hidden;
+  if(returnFrom && loggedToday(returnFrom)){ returnFrom = null; store('awaiting'); }
+  const collapsed = Object.keys(mine).length > 0 && !pasteOpen && !returnFrom && !box.value && $('confirm').hidden;
+  const rg = returnFrom && G[returnFrom];
+  $('pasteTitle').textContent = rg ? `Back from ${rg.name}?` : 'Log a result';
+  $('pasteBtn').textContent = rg ? `Paste ${rg.name} result` : 'Paste result';
+  $('pasteBtn').style.background = rg ? gameColor(rg.id) : '';
   $('pasteBody').hidden = collapsed; $('pasteOpen').hidden = !collapsed;
   $('pasteOpen').onclick = () => { pasteOpen = true; render(); box.focus(); };
 
