@@ -422,16 +422,28 @@ const SITE = (!LOCAL_HOST && SHARE_URL) || location.origin + location.pathname;
 const MEDALS = ['🥇','🥈','🥉'];
 const SHARE_TOP = 10;
 // Builds share text for the day's standings, like the result text the games themselves share.
+// Only the games every listed player played are shared, so everyone is compared on the same games.
 function shareText(rows, places, byGame, day){
   const d = new Date(day+'T12:00:00').toLocaleDateString(undefined, {weekday:'short', month:'short', day:'numeric'});
   const g = currentGroup(), lines = [`trivialRANKS · ${g ? g.name + ' · ' : ''}${d}`, ''];
-  const line = i => `${MEDALS[places[i]-1] || places[i] + '.'} ${nameOf(rows[i].id)} ${rows[i].total} · ${rows[i].played} game${rows[i].played === 1 ? '' : 's'}`;
-  rows.slice(0, SHARE_TOP).forEach((_, i) => lines.push(line(i)));
-  const myAt = rows.findIndex(r => r.id === uid);
-  if(myAt >= SHARE_TOP) lines.push('…', line(myAt));
-  else if(rows.length > SHARE_TOP) lines.push(`…and ${rows.length - SHARE_TOP} more`);
-  const top = Object.entries(byGame).sort((a,b) => b[1].length - a[1].length)[0];
-  if(top && top[1].length > 1) lines.push('', `Most played: ${G[top[0]].name} (${top[1].length})`);
+  const common = GAMES.filter(gm => rows.length && rows.every(r => r.games[gm.id]));
+  if(common.length){
+    const ranked = rows.map(r => ({id: r.id, games: r.games, total: common.reduce((s, gm) => s + r.games[gm.id].v, 0)}))
+      .sort((a,b) => b.total - a.total);
+    const pl = placesOf(ranked, r => r.total);
+    lines.push(`Games in common: ${common.map(gm => gm.name).join(', ')}`, '');
+    const line = i => {
+      const r = ranked[i];
+      return `${MEDALS[pl[i]-1] || pl[i] + '.'} ${nameOf(r.id)} ${r.total}\n   ` +
+        common.map(gm => `${gm.name} ${r.games[gm.id].e.display}`).join(' · ');
+    };
+    ranked.slice(0, SHARE_TOP).forEach((_, i) => lines.push(line(i)));
+    const myAt = ranked.findIndex(r => r.id === uid);
+    if(myAt >= SHARE_TOP) lines.push('…', line(myAt));
+    else if(ranked.length > SHARE_TOP) lines.push(`…and ${ranked.length - SHARE_TOP} more`);
+  } else {
+    lines.push('No game everyone played yet today.');
+  }
   // On a group board, the link joins the group; otherwise it opens the site.
   if(g && g.code) lines.push('', `Join ${g.name} on trivialranks.com:`, inviteLink(g));
   else lines.push('', `Play at ${SITE}`);
